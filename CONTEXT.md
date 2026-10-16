@@ -26,6 +26,13 @@ _Avoid_: chunk (chunk is an implementation term), ADR cycle
 The part of a Cooler cycle in which the ADR recycles and science data are flagged; the spacecraft keeps spinning.
 _Avoid_: R, dead time
 
+**Flag**:
+A per-IFG marker of degraded or unusable data (Recycling window, Mode switch, SAA exceeded, slew).
+_Avoid_: mask, cut
+
+**Valid IFG**:
+An IFG with no Flag set; only Valid IFGs enter maps.
+
 ### Pointing
 
 **Spin axis**:
