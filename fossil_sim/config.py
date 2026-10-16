@@ -115,6 +115,30 @@ class InstrumentConfig:
 
 
 @dataclass(frozen=True)
+class SkyConfig:
+    t_cmb_k: float
+    include_cmb_blackbody: bool
+    y: float
+    y_electron_temperature_kev: float
+    mu: float
+    cib_amplitude: float
+    cib_spectral_index: float
+    cib_temperature_k: float
+    cib_reference_freq_ghz: float
+    co_amplitude: float
+    solar_velocity_km_s: float
+    solar_velocity_gal_lat_deg: float
+    solar_velocity_gal_lon_deg: float
+    include_orbital_velocity: bool
+    apply_beam_to_dipole: bool
+
+
+@dataclass(frozen=True)
+class OutputConfig:
+    save_tod: bool
+
+
+@dataclass(frozen=True)
 class IFGConfig:
     max_opd_m: float
     opd_per_mirror_position: float
@@ -132,6 +156,8 @@ class Config:
     maps: MapsConfig
     instrument: InstrumentConfig
     ifg: IFGConfig
+    sky: SkyConfig
+    output: OutputConfig
     source_path: str | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:

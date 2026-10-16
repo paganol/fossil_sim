@@ -71,3 +71,130 @@ class HitMaps:
             )
             paths.append(path)
         return paths
+
+
+@njit(cache=True)
+def _accumulate_spectra(pixels, values, sums, counts):
+    for i in range(pixels.size):
+        counts[pixels[i]] += 1
+        sums[pixels[i]] += values[i]
+
+
+DIAGNOSTIC_OUTPUTS = ("L", "R")
+DIAGNOSTIC_MODES = ("B10", "B01")
+
+
+class SpectralMaps:
+    """Binned spectral maps, accumulated in streaming (J2000 ecliptic, RING).
+
+    - ``sky``: the reconstructed sky spectrum (perfect calibration), averaged
+      over all valid science IFGs and DUs;
+    - ``raw``: the differential spectrum s (I₁ − I₂) per (output, Mode), the
+      diagnostic product (B10 and B01 have opposite sky sign).
+
+    Sums are stored as (npix, n_freq) for contiguous accumulation.
+    """
+
+    def __init__(self, nsides: tuple[int, ...], freq_ghz: np.ndarray) -> None:
+        self.freq_ghz = np.asarray(freq_ghz)
+        n_freq = self.freq_ghz.size
+        self.sky_sum = {n: np.zeros((hp.nside2npix(n), n_freq)) for n in nsides}
+        self.sky_count = {n: np.zeros(hp.nside2npix(n), dtype=np.int64) for n in nsides}
+        self.raw_sum = {
+            n: np.zeros(
+                (
+                    len(DIAGNOSTIC_OUTPUTS),
+                    len(DIAGNOSTIC_MODES),
+                    hp.nside2npix(n),
+                    n_freq,
+                )
+            )
+            for n in nsides
+        }
+        self.raw_count = {
+            n: np.zeros(
+                (len(DIAGNOSTIC_OUTPUTS), len(DIAGNOSTIC_MODES), hp.nside2npix(n)),
+                dtype=np.int64,
+            )
+            for n in nsides
+        }
+
+    def add(
+        self,
+        boresight: np.ndarray,
+        sky_estimate: np.ndarray,
+        raw_by_output: dict[str, np.ndarray],
+        mode_names: np.ndarray,
+    ) -> None:
+        """Accumulate valid IFGs.
+
+        ``sky_estimate`` is (n, n_freq), NaN for non-science IFGs;
+        ``raw_by_output[o]`` is the full-band differential spectrum of output o.
+        """
+        science = ~np.isnan(sky_estimate[:, 0])
+        for nside, sums in self.sky_sum.items():
+            pixels = hp.vec2pix(
+                nside, boresight[:, 0], boresight[:, 1], boresight[:, 2]
+            )
+            _accumulate_spectra(
+                pixels[science], sky_estimate[science], sums, self.sky_count[nside]
+            )
+            for i_out, output in enumerate(DIAGNOSTIC_OUTPUTS):
+                for i_mode, mode in enumerate(DIAGNOSTIC_MODES):
+                    sel = mode_names == mode
+                    _accumulate_spectra(
+                        pixels[sel],
+                        raw_by_output[output][sel],
+                        self.raw_sum[nside][i_out, i_mode],
+                        self.raw_count[nside][i_out, i_mode],
+                    )
+
+    @staticmethod
+    def _average(sums: np.ndarray, counts: np.ndarray) -> np.ndarray:
+        with np.errstate(invalid="ignore", divide="ignore"):
+            maps = (sums / counts[..., None]).swapaxes(-1, -2)
+        return np.where(np.isfinite(maps), maps, hp.UNSEEN)
+
+    def sky_map(self, nside: int) -> np.ndarray:
+        """Reconstructed sky, shape (n_freq, npix), MJy/sr; UNSEEN where not observed."""
+        return self._average(self.sky_sum[nside], self.sky_count[nside])
+
+    def raw_maps(self, nside: int) -> np.ndarray:
+        """Differential spectra, shape (2 outputs, 2 Modes, n_freq, npix), MJy/sr."""
+        return self._average(self.raw_sum[nside], self.raw_count[nside])
+
+    def save(self, output_dir: str | Path) -> list[Path]:
+        """Write the sky and diagnostic maps, one FITS file each per nside."""
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        freq_names = [f"{f:07.2f}GHz" for f in self.freq_ghz]
+        paths = []
+        for nside in self.sky_sum:
+            path = output_dir / f"sky_nside{nside:04d}.fits"
+            hp.write_map(
+                path,
+                self.sky_map(nside),
+                column_names=freq_names,
+                column_units="MJy/sr",
+                coord="E",
+                overwrite=True,
+            )
+            paths.append(path)
+            raw = self.raw_maps(nside)
+            names = [
+                f"{o}_{m}_{f}"
+                for o in DIAGNOSTIC_OUTPUTS
+                for m in DIAGNOSTIC_MODES
+                for f in freq_names
+            ]
+            path = output_dir / f"raw_nside{nside:04d}.fits"
+            hp.write_map(
+                path,
+                raw.reshape(-1, raw.shape[-1]),
+                column_names=names,
+                column_units="MJy/sr",
+                coord="E",
+                overwrite=True,
+            )
+            paths.append(path)
+        return paths
