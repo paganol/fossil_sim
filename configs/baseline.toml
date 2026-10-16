@@ -63,9 +63,11 @@ dichroic_split_ghz = 300.0                # Step2 (LF/HF split at each output)
 beam_fwhm_deg = 1.6                       # Step2
 
 [ifg]
-# Ideal-FTS interferogram (illustration only in v0.1). Modulation cos(4π ν δ / c)
-# with δ the mirror position (Step2 formula), so the spectral resolution is
-# c / (4 δ_max) and Nyquist sampling of ν_max needs a step in δ <= c / (4 ν_max).
-max_mirror_position_m = 0.005             # TBD — placeholder: c / (4 × 15 GHz), matches freq_step_ghz
-samples_per_ifg = 512                     # TBD — placeholder: symmetric scan −δ_max..+δ_max,
-                                          # step 19.6 µm < c / (4 × 2000 GHz) = 37.5 µm
+# Ideal-FTS interferogram (illustration only in v0.1), modulation cos(2π ν x / c)
+# with x the optical path difference (OPD): spectral resolution c / (2 x_max),
+# Nyquist sampling of ν_max needs an OPD step <= c / (2 ν_max).
+max_opd_m = 0.01                          # TBD — placeholder: c / (2 × 15 GHz), matches freq_step_ghz
+samples_per_ifg = 512                     # TBD — placeholder: symmetric scan −x_max..+x_max,
+                                          # step 39 µm < c / (2 × 2000 GHz) = 75 µm
+opd_per_mirror_position = 2.0             # TBD — OPD / mirror displacement; 2 from the Step2
+                                          # formula cos(4π ν δ / c); 4 if both rooftops move (PIXIE-like)

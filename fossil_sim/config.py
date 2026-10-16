@@ -115,7 +115,8 @@ class InstrumentConfig:
 
 @dataclass(frozen=True)
 class IFGConfig:
-    max_mirror_position_m: float
+    max_opd_m: float
+    opd_per_mirror_position: float
     samples_per_ifg: int
 
 
@@ -217,6 +218,8 @@ def validate(config: Config) -> None:
         raise ValueError("operations.mode_switch_dead_ifgs must be >= 0")
     if ops.recycling_data not in ("flagged", "off"):
         raise ValueError("operations.recycling_data must be 'flagged' or 'off'")
+    if config.ifg.opd_per_mirror_position <= 0 or config.ifg.max_opd_m <= 0:
+        raise ValueError("ifg: max_opd_m and opd_per_mirror_position must be > 0")
     if not bbir.setpoints_k or len(bbir.port_offsets_k) != 2:
         raise ValueError("bbir: setpoints_k non-empty, port_offsets_k of length 2")
     Time(config.simulation.mission_start, scale="tdb")  # raises if malformed

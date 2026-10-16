@@ -1,7 +1,12 @@
 import numpy as np
 
 from fossil_sim.constants import T_CMB_K
-from fossil_sim.ifg import differential_spectrum, interferogram, mirror_positions_m
+from fossil_sim.ifg import (
+    differential_spectrum,
+    interferogram,
+    mirror_positions_m,
+    opd_samples_m,
+)
 from fossil_sim.instrument import detector_units, frequency_grid_ghz
 from fossil_sim.spectra import blackbody_mjy_sr, y_distortion_mjy_sr
 
@@ -15,7 +20,7 @@ def test_y_distortion_null_at_217_ghz():
 
 def test_ifg_round_trip_and_output_signs(config):
     freq_ghz = frequency_grid_ghz(config.instrument)
-    delta_m = mirror_positions_m(config.ifg)
+    delta_m = opd_samples_m(config.ifg)
     sky = blackbody_mjy_sr(freq_ghz, T_CMB_K) + y_distortion_mjy_sr(
         freq_ghz, 1e-5, T_CMB_K
     )
@@ -34,3 +39,9 @@ def test_ifg_round_trip_and_output_signs(config):
     ifg_r = interferogram(freq_ghz, sky, bbir, dus["LF-R"], delta_m)
     total = ifg_l + ifg_r
     assert np.allclose(total, total[0], rtol=1e-12)
+
+
+def test_mirror_positions_follow_opd_factor(config):
+    # Step2 formula cos(4π ν δ / c): δ_max = c / (4 Δν) = 5 mm for 15 GHz bins
+    assert np.max(mirror_positions_m(config.ifg)) == 0.005
+    assert np.allclose(mirror_positions_m(config.ifg) * 2, opd_samples_m(config.ifg))
