@@ -6,11 +6,19 @@ the end, giving results identical to a serial run.
 """
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
+import h5py
 import numpy as np
 
 from .config import MODES, Config
-from .mapmaking import HitMaps
+from .input_sky import (
+    boosted_isotropic_background_mjy_sr,
+    dipole_beam_factor,
+    solar_velocity_km_s,
+)
+from .instrument import detector_units, frequency_grid_ghz
+from .mapmaking import DIAGNOSTIC_OUTPUTS, HitMaps, SpectralMaps
 from .operations import (
     FLAG_NAMES,
     FLAG_SAA_EXCEEDED,
@@ -21,6 +29,15 @@ from .operations import (
 )
 from .orbit import L2Orbit
 from .scanning import cycle_pointing
+from .signal import (
+    bbir_spectra_mjy_sr,
+    du_differential_spectra,
+    port_spectra_mjy_sr,
+    sky_estimate_mjy_sr,
+)
+
+# IFGs processed together when computing spectra (bounds the memory per step)
+SIGNAL_BLOCK_IFGS = 8192
 
 IFG_DTYPE = np.dtype(
     [
@@ -70,11 +87,85 @@ def build_ifg_table(config: Config, orbit: L2Orbit, cycle_id: int) -> np.ndarray
     return table
 
 
+class SignalModel:
+    """Spectral-domain signal of each IFG (no noise in v0.1.1)."""
+
+    def __init__(self, config: Config, orbit: L2Orbit) -> None:
+        self.config = config
+        self.orbit = orbit
+        self.freq_ghz = frequency_grid_ghz(config.instrument)
+        self.dus = detector_units(config.instrument)
+        self.solar_velocity_km_s = solar_velocity_km_s(config.sky)
+        self.beam_factor = (
+            dipole_beam_factor(config.instrument.beam_fwhm_deg)
+            if config.sky.apply_beam_to_dipole
+            else 1.0
+        )
+
+    def velocity_km_s(self, time_s: np.ndarray) -> np.ndarray:
+        """Spacecraft velocity with respect to the CMB, (n, 3)."""
+        velocity = np.broadcast_to(self.solar_velocity_km_s, (time_s.size, 3)).copy()
+        if self.config.sky.include_orbital_velocity:
+            velocity += self.orbit.position_velocity(time_s)[1]
+        return velocity
+
+    def compute(
+        self, table: np.ndarray
+    ) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray]:
+        """DU differential spectra, sky estimate and BBIR spectra for a block of IFGs."""
+        sky = boosted_isotropic_background_mjy_sr(
+            self.freq_ghz,
+            table["boresight"],
+            self.velocity_km_s(table["time_mid_s"]),
+            self.config.sky,
+            self.beam_factor,
+        )
+        bbir = bbir_spectra_mjy_sr(self.freq_ghz, table["bbir_port_temperature_k"])
+        port1, port2 = port_spectra_mjy_sr(sky, bbir, table["mode"])
+        du_spectra = du_differential_spectra(self.freq_ghz, port1, port2, self.dus)
+        estimate = sky_estimate_mjy_sr(
+            self.freq_ghz, du_spectra, self.dus, bbir, table["mode"]
+        )
+        return du_spectra, estimate, bbir
+
+    def output_spectra(
+        self, du_spectra: dict[str, np.ndarray]
+    ) -> dict[str, np.ndarray]:
+        """Full-band differential spectrum of each output (L, R), assembled from its DUs."""
+        result = {}
+        for output in DIAGNOSTIC_OUTPUTS:
+            full = np.full(
+                (next(iter(du_spectra.values())).shape[0], self.freq_ghz.size), np.nan
+            )
+            for du in self.dus:
+                if du.name.endswith(output):
+                    full[:, du.band_mask(self.freq_ghz)] = du_spectra[du.name]
+            result[output] = full
+        return result
+
+
+def write_cycle_tod(
+    path: Path, config: Config, model: SignalModel, table, du_spectra
+) -> None:
+    """Write one Cooler cycle (IFG table + DU spectra) to HDF5."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with h5py.File(path, "w") as f:
+        f.create_dataset("ifg_table", data=table)
+        f.create_dataset("freq_ghz", data=model.freq_ghz)
+        for du in model.dus:
+            dataset = f.create_dataset(f"spectra/{du.name}", data=du_spectra[du.name])
+            dataset.attrs["unit"] = "MJy/sr"
+            dataset.attrs["freq_ghz"] = model.freq_ghz[du.band_mask(model.freq_ghz)]
+        for key, value in config.provenance().items():
+            f.attrs[key] = str(value)
+
+
 @dataclass
 class SimulationResult:
     """Accumulated products of a run."""
 
     hit_maps: HitMaps
+    spectral_maps: SpectralMaps | None = None
     num_ifgs: int = 0
     num_valid_ifgs: int = 0
     flag_counts: dict[str, int] = field(default_factory=dict)  # IFGs with each bit set
@@ -91,9 +182,13 @@ class SimulationResult:
 
 
 def run_simulation(
-    config: Config, num_of_cycles: int | None = None, comm=None
+    config: Config,
+    num_of_cycles: int | None = None,
+    comm=None,
+    spectral: bool = True,
+    output_dir: str | Path | None = None,
 ) -> SimulationResult:
-    """Run the mission (or its first ``num_of_cycles`` cycles) and accumulate hit maps.
+    """Run the mission (or its first ``num_of_cycles`` cycles) and accumulate maps.
 
     Parameters
     ----------
@@ -103,7 +198,13 @@ def run_simulation(
     comm : mpi4py communicator, optional
         If given, cycles are distributed round-robin over ranks and the
         results are reduced on every rank.
+    spectral : bool
+        Compute the signal and the spectral maps (otherwise hit maps only).
+    output_dir : path, optional
+        Where per-cycle TOD files go when ``config.output.save_tod`` is true.
     """
+    if config.output.save_tod and (output_dir is None or not spectral):
+        raise ValueError("save_tod needs spectral=True and an output_dir")
     total_cycles = num_cycles(config) if num_of_cycles is None else num_of_cycles
     rank, size = (0, 1) if comm is None else (comm.rank, comm.size)
     orbit = L2Orbit(
@@ -111,7 +212,13 @@ def run_simulation(
         config.simulation.mission_start_time,
         total_cycles * config.timeline.cycle_duration_s,
     )
-    result = SimulationResult(hit_maps=HitMaps(config.maps.nsides))
+    model = SignalModel(config, orbit) if spectral else None
+    result = SimulationResult(
+        hit_maps=HitMaps(config.maps.nsides),
+        spectral_maps=SpectralMaps(config.maps.nsides, model.freq_ghz)
+        if spectral
+        else None,
+    )
     flag_counts = np.zeros(len(FLAG_NAMES), dtype=np.int64)
     mode_counts = np.zeros(len(MODES), dtype=np.int64)
     num_ifgs = num_valid = 0
@@ -128,11 +235,20 @@ def run_simulation(
         ]
         mode_counts += np.bincount(valid["mode"], minlength=len(MODES))
         max_saa_rad = max(max_saa_rad, float(table["saa_rad"].max()))
+        if model is not None:
+            _process_signal(
+                config, model, table, result.spectral_maps, cycle_id, output_dir
+            )
 
     if comm is not None:
         from mpi4py import MPI
 
-        for array in (*result.hit_maps.hits.values(), flag_counts, mode_counts):
+        summed = [*result.hit_maps.hits.values(), flag_counts, mode_counts]
+        if result.spectral_maps is not None:
+            sm = result.spectral_maps
+            for maps in (sm.sky_sum, sm.sky_count, sm.raw_sum, sm.raw_count):
+                summed += list(maps.values())
+        for array in summed:
             comm.Allreduce(MPI.IN_PLACE, array, op=MPI.SUM)
         for array in result.hit_maps.first_hit_time_s.values():
             comm.Allreduce(MPI.IN_PLACE, array, op=MPI.MIN)
@@ -145,3 +261,29 @@ def run_simulation(
     result.mode_counts = dict(zip(MODES, mode_counts.tolist(), strict=True))
     result.max_saa_deg = float(np.rad2deg(max_saa_rad))
     return result
+
+
+def _process_signal(config, model, table, spectral_maps, cycle_id, output_dir) -> None:
+    """Signal and spectral maps of one cycle, in blocks of IFGs."""
+    mode_names = np.asarray(MODES)
+    tod_blocks = []
+    for start in range(0, table.size, SIGNAL_BLOCK_IFGS):
+        block = table[start : start + SIGNAL_BLOCK_IFGS]
+        du_spectra, estimate, _ = model.compute(block)
+        if config.output.save_tod:
+            tod_blocks.append(du_spectra)
+        valid = block["flags"] == 0
+        outputs = model.output_spectra(du_spectra)
+        spectral_maps.add(
+            block["boresight"][valid],
+            estimate[valid],
+            {name: spectrum[valid] for name, spectrum in outputs.items()},
+            mode_names[block["mode"][valid]],
+        )
+    if config.output.save_tod:
+        du_spectra = {
+            du.name: np.concatenate([b[du.name] for b in tod_blocks])
+            for du in model.dus
+        }
+        path = Path(output_dir) / "tod" / f"cycle_{cycle_id:05d}.h5"
+        write_cycle_tod(path, config, model, table, du_spectra)

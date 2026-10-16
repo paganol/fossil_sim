@@ -55,7 +55,7 @@ def main(config_path: Path, output_dir: Path) -> None:
     for label, days in CASES_DAYS.items():
         num_of_cycles = int(np.ceil(days * 86400 / tl.cycle_duration_s))
         start = time.perf_counter()
-        result = run_simulation(config, num_of_cycles=num_of_cycles)
+        result = run_simulation(config, num_of_cycles=num_of_cycles, spectral=False)
         elapsed_s = time.perf_counter() - start
         case_dir = output_dir / label
         result.hit_maps.save(case_dir)

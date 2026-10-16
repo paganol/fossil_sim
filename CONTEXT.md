@@ -73,3 +73,17 @@ _Avoid_: configuration, state
 **Detector unit (DU)**:
 One of LF-L, HF-L, LF-R, HF-R: an FTS output (L/R) split by the 300 GHz dichroic.
 _Avoid_: detector, channel
+
+### Sky
+
+**Isotropic background**:
+A sky component isotropic in the CMB rest frame (CMB blackbody, y, μ, CIB monopole, extragalactic CO); observed with the kinematic boost.
+_Avoid_: monopole (the observed signal also has a dipole)
+
+**Static sky**:
+The time-independent anisotropic sky (Galactic foregrounds, CMB anisotropies), without monopole or dipole.
+_Avoid_: sky cube, sky map
+
+**Boost**:
+The Lorentz transformation from the CMB rest frame to the spacecraft frame, with velocity β_sun + β_orbit(t).
+_Avoid_: Doppler (only part of the effect)
