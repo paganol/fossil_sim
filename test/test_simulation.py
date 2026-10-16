@@ -47,7 +47,11 @@ def test_spectral_maps_recover_kinematic_dipole(config, tmp_path):
     from fossil_sim.input_sky import isotropic_background_mjy_sr, solar_velocity_km_s
     from fossil_sim.spectra import blackbody_mjy_sr
 
-    cfg = replace(config, output=replace(config.output, save_tod=True))
+    cfg = replace(
+        config,
+        output=replace(config.output, save_tod=True),
+        static_sky=replace(config.static_sky, models=()),
+    )
     result = run_simulation(cfg, num_of_cycles=2, output_dir=tmp_path)
     maps = result.spectral_maps
     freq_ghz = maps.freq_ghz

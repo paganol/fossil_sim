@@ -134,6 +134,23 @@ class SkyConfig:
 
 
 @dataclass(frozen=True)
+class StaticSkyConfig:
+    models: tuple[str, ...]
+    nside: int
+    lmax: int
+    orbital_doppler: bool
+    cache_dir: str
+    sampling: str
+
+
+# pysm3 models that would double count the Isotropic backgrounds or are not
+# suited to a discrete frequency grid (Galactic CO lines)
+FORBIDDEN_STATIC_MODELS = ("dip", "co")
+# Extragalactic pysm3 models: their monopole is removed (ADR 0002)
+EXTRAGALACTIC_STATIC_MODELS = ("cib", "tsz", "ksz", "rg")
+
+
+@dataclass(frozen=True)
 class OutputConfig:
     save_tod: bool
 
@@ -157,6 +174,7 @@ class Config:
     instrument: InstrumentConfig
     ifg: IFGConfig
     sky: SkyConfig
+    static_sky: StaticSkyConfig
     output: OutputConfig
     source_path: str | None = field(default=None, compare=False)
 
@@ -254,6 +272,14 @@ def validate(config: Config) -> None:
         raise ValueError("operations.recycling_data must be 'flagged' or 'off'")
     if config.ifg.opd_per_mirror_position <= 0 or config.ifg.max_opd_m <= 0:
         raise ValueError("ifg: max_opd_m and opd_per_mirror_position must be > 0")
+    st = config.static_sky
+    for model in st.models:
+        if model.startswith(FORBIDDEN_STATIC_MODELS):
+            raise ValueError(f"static_sky.models: '{model}' is not allowed (ADR 0002)")
+    if st.sampling not in ("alm", "nearest"):
+        raise ValueError("static_sky.sampling must be 'alm' or 'nearest'")
+    if st.lmax < 1 or st.nside < 1:
+        raise ValueError("static_sky: nside and lmax must be >= 1")
     if not bbir.setpoints_k or len(bbir.port_offsets_k) != 2:
         raise ValueError("bbir: setpoints_k non-empty, port_offsets_k of length 2")
     Time(config.simulation.mission_start, scale="tdb")  # raises if malformed

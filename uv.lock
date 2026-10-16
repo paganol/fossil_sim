@@ -775,11 +775,13 @@ name = "fossil-sim"
 source = { editable = "." }
 dependencies = [
     { name = "astropy" },
+    { name = "ducc0" },
     { name = "h5py" },
     { name = "healpy" },
     { name = "matplotlib" },
     { name = "numba" },
     { name = "numpy" },
+    { name = "pysm3" },
     { name = "scipy" },
 ]
 
@@ -806,6 +808,7 @@ oracle = [
 [package.metadata]
 requires-dist = [
     { name = "astropy", specifier = ">=6.1" },
+    { name = "ducc0", specifier = ">=0.41.0" },
     { name = "h5py", specifier = ">=3.9" },
     { name = "healpy", specifier = ">=1.17" },
     { name = "ipykernel", marker = "extra == 'dev'", specifier = ">=6.29" },
@@ -817,6 +820,7 @@ requires-dist = [
     { name = "numba", specifier = ">=0.60" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "pydata-sphinx-theme", marker = "extra == 'docs'", specifier = ">=0.16" },
+    { name = "pysm3", specifier = ">=3.4.6" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
     { name = "scipy", specifier = ">=1.13" },
