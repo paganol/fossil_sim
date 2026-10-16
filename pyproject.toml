@@ -20,6 +20,12 @@ dependencies = [
 mpi = ["mpi4py>=3.1"]
 # Validation oracle only: never imported by fossil_sim itself
 oracle = ["litebird_sim"]
+docs = [
+    "sphinx>=8.1",
+    "pydata-sphinx-theme>=0.16",
+    "myst-nb>=1.1",
+    "sphinxcontrib-bibtex>=2.6",
+]
 dev = [
     "ruff>=0.6",
     "pytest>=8.0",

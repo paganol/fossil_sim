@@ -7,3 +7,5 @@ __pycache__/
 dist/
 output/
 *.fits
+docs/_build/
+docs/tutorials/notebooks/
