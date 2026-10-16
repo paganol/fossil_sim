@@ -7,6 +7,8 @@ v0.1.1: Isotropic backgrounds observed with the exact Boost (ADR 0002),
 with β = (v_sun + v_orbit(t)) / c and n̂ the observed direction. The beam
 acts on the anisotropic part only, through b₁ = exp(−σ²).
 
+v0.1.3: zodiacal light from zodipy, seen from the spacecraft position.
+
 v0.1.2: the Static sky, following the design of litebird_sim's
 ``SkyGenerator``: pysm3 maps per frequency -> alm, Gaussian beam, rotation to
 the J2000 ecliptic, cached on disk, sampled per IFG with
@@ -26,7 +28,7 @@ import numpy as np
 from astropy import units as u
 from astropy.coordinates import BarycentricMeanEcliptic, SkyCoord
 
-from .config import EXTRAGALACTIC_STATIC_MODELS, SkyConfig, StaticSkyConfig
+from .config import EXTRAGALACTIC_STATIC_MODELS, Config, SkyConfig, StaticSkyConfig
 from .constants import C_LIGHT_M_S
 from .spectra import (
     blackbody_mjy_sr,
@@ -282,3 +284,79 @@ def orbital_doppler_mjy_sr(
     beta_dot_n = np.sum(orbital_velocity_km_s * direction, axis=1) / C_LIGHT_KM_S
     d_intensity = np.gradient(intensity_mjy_sr, np.log(freq_ghz), axis=1)
     return beta_dot_n[:, None] * (3 * intensity_mjy_sr - d_intensity)
+
+
+class ZodiacalLight:
+    """Zodiacal light per IFG, from zodipy, evaluated Ring by Ring.
+
+    The Scans of a Ring retrace the same circle and only the observer moves
+    (about 0.4° in 9.2 h). The emission is evaluated on the ``ifgs_per_scan``
+    directions of each Ring at its start and end (for the last Ring, the end
+    of the Recycling window) and linearly interpolated in time for each IFG.
+    The observer is the spacecraft position of :class:`~fossil_sim.orbit.L2Orbit`.
+    No beam smoothing and no Doppler effect from the dust motion are applied.
+    """
+
+    def __init__(self, config: Config, orbit, freq_ghz: np.ndarray) -> None:
+        import zodipy
+
+        self.config = config
+        self.orbit = orbit
+        self.freq_ghz = np.asarray(freq_ghz)
+        zc = config.zodi
+        self.models = [
+            zodipy.Model(
+                f * u.GHz,
+                name=zc.model,
+                extrapolate=zc.extrapolate,
+                gauss_quad_degree=zc.gauss_quad_degree,
+            )
+            for f in self.freq_ghz
+        ]
+
+    def evaluate(self, direction: np.ndarray, time_s: np.ndarray) -> np.ndarray:
+        """Zodiacal light along directions at the given times, (n, n_freq), MJy/sr."""
+        from astropy.time import TimeDelta
+
+        obstime = self.config.simulation.mission_start_time + TimeDelta(
+            time_s, format="sec"
+        )
+        lon_rad = np.arctan2(direction[:, 1], direction[:, 0])
+        lat_rad = np.arcsin(np.clip(direction[:, 2], -1.0, 1.0))
+        coords = SkyCoord(
+            lon_rad * u.rad,
+            lat_rad * u.rad,
+            frame=BarycentricMeanEcliptic(equinox="J2000"),
+            obstime=obstime,
+        )
+        obspos = (self.orbit.heliocentric_position_km(time_s).T * u.km).to(u.AU)
+        result = np.empty((direction.shape[0], self.freq_ghz.size))
+        for i, model in enumerate(self.models):
+            emission = model.evaluate(
+                coords, obspos=obspos, nprocesses=self.config.zodi.nprocesses
+            )
+            result[:, i] = emission.to_value(u.MJy / u.sr)
+        return result
+
+    def for_cycle(
+        self, cycle_id: int, ring_axes: np.ndarray, table: np.ndarray
+    ) -> np.ndarray:
+        """Zodiacal light of the IFGs of one cycle (``table`` rows), (n, n_freq)."""
+        from .scanning import ring_circles
+
+        tl = self.config.timeline
+        n_rings, n_phase = ring_axes.shape[0], tl.ifgs_per_scan
+        ring_duration_s = tl.scans_per_ring * tl.scan_duration_s
+        start_s = cycle_id * tl.cycle_duration_s + np.arange(n_rings) * ring_duration_s
+        end_s = start_s + ring_duration_s
+        end_s[-1] = (cycle_id + 1) * tl.cycle_duration_s  # last Ring covers Recycling
+        circles = ring_circles(self.config, ring_axes)  # (n_rings, n_phase, 3)
+        directions = np.concatenate([circles, circles], axis=0).reshape(-1, 3)
+        times_s = np.repeat(np.concatenate([start_s, end_s]), n_phase)
+        values = self.evaluate(directions, times_s).reshape(2, n_rings, n_phase, -1)
+
+        ring = table["ring_in_cycle"].astype(np.int64)
+        phase = table["ifg_in_scan"].astype(np.int64)
+        weight = (table["time_mid_s"] - start_s[ring]) / (end_s[ring] - start_s[ring])
+        first, last = values[0, ring, phase], values[1, ring, phase]
+        return first + weight[:, None] * (last - first)

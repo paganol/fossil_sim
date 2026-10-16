@@ -151,6 +151,15 @@ EXTRAGALACTIC_STATIC_MODELS = ("cib", "tsz", "ksz", "rg")
 
 
 @dataclass(frozen=True)
+class ZodiConfig:
+    enabled: bool
+    model: str
+    extrapolate: bool
+    gauss_quad_degree: int
+    nprocesses: int
+
+
+@dataclass(frozen=True)
 class OutputConfig:
     save_tod: bool
 
@@ -175,6 +184,7 @@ class Config:
     ifg: IFGConfig
     sky: SkyConfig
     static_sky: StaticSkyConfig
+    zodi: ZodiConfig
     output: OutputConfig
     source_path: str | None = field(default=None, compare=False)
 
@@ -280,6 +290,8 @@ def validate(config: Config) -> None:
         raise ValueError("static_sky.sampling must be 'alm' or 'nearest'")
     if st.lmax < 1 or st.nside < 1:
         raise ValueError("static_sky: nside and lmax must be >= 1")
+    if config.zodi.gauss_quad_degree < 1 or config.zodi.nprocesses < 1:
+        raise ValueError("zodi: gauss_quad_degree and nprocesses must be >= 1")
     if not bbir.setpoints_k or len(bbir.port_offsets_k) != 2:
         raise ValueError("bbir: setpoints_k non-empty, port_offsets_k of length 2")
     Time(config.simulation.mission_start, scale="tdb")  # raises if malformed

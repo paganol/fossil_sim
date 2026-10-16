@@ -13,8 +13,13 @@ from fossil_sim.config import load_config
 from fossil_sim.simulation import run_simulation
 
 config = load_config(Path(__file__).parents[1] / "configs" / "baseline.toml")
-# ponytail: no Static sky here (pysm3 downloads); its MPI path is rank-0 build + barrier
-config = replace(config, static_sky=replace(config.static_sky, models=()))
+# ponytail: no Static sky (pysm3 downloads) nor zodi (slow) here; both are per-cycle
+# functions of the configuration, so they do not change the MPI logic
+config = replace(
+    config,
+    static_sky=replace(config.static_sky, models=()),
+    zodi=replace(config.zodi, enabled=False),
+)
 parallel = run_simulation(config, num_of_cycles=7, comm=MPI.COMM_WORLD)
 if MPI.COMM_WORLD.rank == 0:
     serial = run_simulation(config, num_of_cycles=7)

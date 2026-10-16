@@ -51,6 +51,7 @@ def test_spectral_maps_recover_kinematic_dipole(config, tmp_path):
         config,
         output=replace(config.output, save_tod=True),
         static_sky=replace(config.static_sky, models=()),
+        zodi=replace(config.zodi, enabled=False),
     )
     result = run_simulation(cfg, num_of_cycles=2, output_dir=tmp_path)
     maps = result.spectral_maps
