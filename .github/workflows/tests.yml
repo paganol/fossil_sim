@@ -17,7 +17,7 @@ jobs:
       - run: uv run pytest --nbmake notebooks
 
   oracle:
-    # Optional cross-check of the pointing against litebird_sim
+    # Optional cross-checks against litebird_sim (pointing) and bisou_sky (spectra)
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
@@ -26,7 +26,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --extra dev
-      - run: uv run --with litebird_sim pytest -m heavy
+      - run: uv run --with litebird_sim --with "git+https://github.com/paganol/BISOU-sky" pytest -m heavy
 
   mpi:
     # MPI run must equal the serial run (ADR 0001)

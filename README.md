@@ -7,7 +7,7 @@ spectral distortions with an absolute Fourier Transform Spectrometer.
 uv sync --extra dev
 uv run pytest                                   # unit tests + doctests
 uv run pytest --nbmake notebooks                # example notebooks
-uv run --with litebird_sim pytest -m heavy      # optional litebird_sim oracle
+uv run --with litebird_sim --with "git+https://github.com/paganol/BISOU-sky" pytest -m heavy  # oracles
 uv run --with mpi4py mpirun -n 3 python scripts/mpi_check.py
 uv run python examples/hitmaps.py               # hit maps + report in output/hitmaps
 ```
