@@ -47,3 +47,10 @@ def test_invalid_values_are_rejected(section, key, value):
     values[section][key] = value
     with pytest.raises(ValueError):
         config_from_dict(values)
+
+
+def test_uncovered_poles_warn():
+    values = baseline_dict()
+    values["scanning"]["spin_boresight_angle_deg"] = 85.0
+    with pytest.warns(UserWarning, match="poles"):
+        config_from_dict(values)

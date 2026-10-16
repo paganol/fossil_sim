@@ -9,6 +9,7 @@ import hashlib
 import json
 import subprocess
 import tomllib
+import warnings
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
@@ -209,6 +210,13 @@ def validate(config: Config) -> None:
                 f"Precession amplitude + stepping offset ({worst_saa_deg} deg) "
                 f"exceeds max_saa_deg ({sc.max_saa_deg} deg)"
             )
+    pole_gap_deg = abs(90.0 - sc.spin_boresight_angle_deg) - sc.precession_amplitude_deg
+    if pole_gap_deg > 0:
+        warnings.warn(
+            f"Ecliptic poles never observed: |90° − spin_boresight_angle_deg| exceeds "
+            f"precession_amplitude_deg by {pole_gap_deg} deg",
+            stacklevel=2,
+        )
     if sc.precession_amplitude_deg > 0 and sc.precession_period_days <= 0:
         raise ValueError("scanning.precession_period_days must be > 0")
     bad_modes = set(ops.ring_mode_pattern) | {ops.recycling_mode}
