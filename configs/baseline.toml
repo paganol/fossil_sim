@@ -1,0 +1,74 @@
+# FOSSIL baseline configuration.
+# Every value carries its source; "TBD — placeholder" means not yet fixed.
+
+[simulation]
+master_seed = 20260101                    # arbitrary
+mission_start = "2040-01-01T00:00:00"     # TBD — placeholder (TDB): start of science
+                                          # operations at L2, not launch
+duration_days = 1278.375                  # 3.5 yr nominal mission, Step2
+
+[timeline]
+# The Cooler-cycle duration is derived:
+# (scans_per_ring * rings_per_cycle + recycling_scans) * ifgs_per_scan * ifg_duration_s
+ifg_duration_s = 2.0                      # Step2 §5.4.2 ("one IFG every ~2 s")
+ifgs_per_scan = 720                       # Step2 §5.4.2 (1440 s per scan); NOTE: implies
+                                          # spin period 24 min = 2.5 rph, text says "about 2 rph"
+scans_per_ring = 23                       # Step2 §5.4.2 (~9.2 h per ring)
+rings_per_cycle = 3                       # Step2 §5.4.2 (~28 h per 35 h cycle)
+recycling_scans = 18                      # TBD — 7.2 h ≈ "~7 h" R window, rounded to whole Scans
+                                          # so every Ring starts at spin phase 0
+
+[scanning]
+spin_boresight_angle_deg = 90.0           # TBD — default great circles
+ring_stepping = "equal_per_cycle"         # see CONTEXT.md "Ring stepping"; alternatives:
+                                          # "anchor_ring_start", "fixed"
+fixed_ring_step_deg = 0.5                 # Step2 §5.4.2; used only by ring_stepping = "fixed"
+precession_amplitude_deg = 0.0            # TBD — "a few degrees", Step2 §5.4.2
+precession_period_days = 0.0              # TBD
+precession_phase_deg = 0.0                # TBD
+max_saa_deg = 10.0                        # Step2 §5.4.2 (max Solar Aspect Angle ~10 deg)
+
+[orbit]
+# L2 approximated as Earth position/velocity scaled along the Sun-Earth line,
+# plus a Lissajous orbit. Default values: WMAP orbit, Cavaluzzi, Fink & Coyle (2008).
+earth_l2_distance_km = 1496509.30522      # litebird_sim constants.EARTH_L2_DISTANCE_KM
+lissajous_radius1_km = 244450.0           # TBD — placeholder (WMAP)
+lissajous_radius2_km = 137388.0           # TBD — placeholder (WMAP)
+lissajous_freq1_cycles_yr = 2.02104       # TBD — placeholder (WMAP)
+lissajous_freq2_cycles_yr = 1.98507       # TBD — placeholder (WMAP)
+lissajous_phase_deg = -47.944             # TBD — placeholder (WMAP)
+
+[operations]
+ring_mode_pattern = ["B10", "B01"]        # prompt default: alternate B10/B01 Scan by Scan;
+                                          # repeated over the global Scan index
+mode_switch_dead_ifgs = 1                 # TBD — placeholder
+recycling_data = "flagged"                # "flagged" | "off"
+recycling_mode = "B00"                    # TBD — placeholder
+
+[bbir]
+setpoints_k = [2.725]                     # TBD — placeholder within 2.5–2.9 K (Step2);
+                                          # setpoint of cycle i = setpoints_k[i % len]
+port_offsets_k = [0.0, 0.0]               # TBD — BBIR seen by Port 1/2, equal in v0.1
+hf_cavity_k = 0.0                         # TBD — 0 = HF cavity off
+
+[maps]
+nsides = [64, 128]
+
+[instrument]
+freq_min_ghz = 60.0                       # TBD — frequency grid as bisou_sky default,
+freq_max_ghz = 2000.0                     # np.arange(60, 2000, 15); final grid with the FTS team
+freq_step_ghz = 15.0
+band_min_ghz = 50.0                       # Step2 (FTS band 50–2000 GHz)
+band_max_ghz = 2000.0                     # Step2
+dichroic_split_ghz = 300.0                # Step2 (LF/HF split at each output)
+beam_fwhm_deg = 1.6                       # Step2
+
+[ifg]
+# Ideal-FTS interferogram (illustration only in v0.1), modulation cos(2π ν x / c)
+# with x the optical path difference (OPD): spectral resolution c / (2 x_max),
+# Nyquist sampling of ν_max needs an OPD step <= c / (2 ν_max).
+max_opd_m = 0.01                          # TBD — placeholder: c / (2 × 15 GHz), matches freq_step_ghz
+samples_per_ifg = 512                     # TBD — placeholder: symmetric scan −x_max..+x_max,
+                                          # step 39 µm < c / (2 × 2000 GHz) = 75 µm
+opd_per_mirror_position = 2.0             # TBD — OPD / mirror displacement; 2 from the Step2
+                                          # formula cos(4π ν δ / c); 4 if both rooftops move (PIXIE-like)

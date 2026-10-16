@@ -1,0 +1,43 @@
+[project]
+name = "fossil_sim"
+dynamic = ["version"]
+description = "Simulation framework for the FOSSIL CMB spectral-distortion mission"
+authors = [{name = "Pagano Luca", email = "luca.pagano@unife.it"}]
+readme = "README.md"
+license = {text = "GPL-3.0"}
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.13",
+    "astropy>=6.1",
+    "healpy>=1.17",
+    "h5py>=3.9",
+    "numba>=0.60",
+    "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+mpi = ["mpi4py>=3.1"]
+# Validation oracle only: never imported by fossil_sim itself
+oracle = ["litebird_sim"]
+dev = [
+    "ruff>=0.6",
+    "pytest>=8.0",
+    "nbmake>=1.5",
+    "ipykernel>=6.29",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "fossil_sim/version.py"
+
+[tool.pytest.ini_options]
+addopts = "--doctest-modules"
+testpaths = ["fossil_sim", "test"]
+markers = ["heavy: needs optional heavy packages (litebird_sim, pysm3, zodipy)"]
+
+[tool.ruff.lint.per-file-ignores]
+"*.ipynb" = ["E402"]
