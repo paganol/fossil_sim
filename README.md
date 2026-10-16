@@ -13,7 +13,8 @@ uv run python examples/hitmaps.py               # hit maps + report in output/hi
 ```
 
 Notebooks: [scanning](notebooks/fossil_sim_scanning.ipynb),
-[interferogram](notebooks/fossil_sim_interferogram.ipynb).
+[interferogram](notebooks/fossil_sim_interferogram.ipynb),
+[spectral maps](notebooks/fossil_sim_spectral_maps.ipynb).
 
 - Domain language: [CONTEXT.md](CONTEXT.md)
 - Design decisions: [docs/adr](docs/adr)
