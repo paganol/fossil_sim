@@ -17,6 +17,7 @@ identify a run ({meth}`fossil_sim.config.Config.provenance`).
 | `[maps]` | HEALPix resolutions |
 | `[instrument]` | frequency grid, band, dichroic split, beam |
 | `[sky]` | Isotropic backgrounds, solar velocity, beam on the dipole |
+| `[static_sky]` | pysm3 models, resolution, cache, sampling, orbital Doppler |
 | `[output]` | per-cycle TOD files |
 | `[ifg]` | OPD range, samples per IFG, OPD per mirror displacement |
 

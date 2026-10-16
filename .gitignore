@@ -9,3 +9,4 @@ output/
 *.fits
 docs/_build/
 docs/tutorials/notebooks/
+cache/

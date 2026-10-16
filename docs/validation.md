@@ -29,6 +29,13 @@ physics and the mission design.
 - Rest-frame spectra equal to bisou_sky to $10^{-6}$ (optional test).
 - Mode table and output signs; exact sky reconstruction in B10 and B01.
 - Kinematic dipole recovered from the spectral maps within 2 %.
+- Static sky (synthetic emission): Galactic monopole kept, extragalactic
+  monopole removed, Galactic → ecliptic rotation and beam $b_1$ exact to
+  $10^{-6}$; cache reused and keyed by content; nearest-pixel sampling
+  consistent with the exact alm sampling; first-order Doppler
+  $(3 - \alpha)\,\beta\cdot\hat{\mathbf n}\,I$ for power laws.
+- Static sky with real pysm3 models: dust dominates at THz on the Galactic
+  plane (optional test).
 - Ideal-FTS interferogram round trip exact; L + R constant.
 
 ## Cross-checks

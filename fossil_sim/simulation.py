@@ -13,8 +13,10 @@ import numpy as np
 
 from .config import MODES, Config
 from .input_sky import (
+    StaticSky,
     boosted_isotropic_background_mjy_sr,
     dipole_beam_factor,
+    orbital_doppler_mjy_sr,
     solar_velocity_km_s,
 )
 from .instrument import detector_units, frequency_grid_ghz
@@ -90,9 +92,12 @@ def build_ifg_table(config: Config, orbit: L2Orbit, cycle_id: int) -> np.ndarray
 class SignalModel:
     """Spectral-domain signal of each IFG (no noise in v0.1.1)."""
 
-    def __init__(self, config: Config, orbit: L2Orbit) -> None:
+    def __init__(
+        self, config: Config, orbit: L2Orbit, static_sky: StaticSky | None = None
+    ) -> None:
         self.config = config
         self.orbit = orbit
+        self.static_sky = static_sky
         self.freq_ghz = frequency_grid_ghz(config.instrument)
         self.dus = detector_units(config.instrument)
         self.solar_velocity_km_s = solar_velocity_km_s(config.sky)
@@ -102,24 +107,38 @@ class SignalModel:
             else 1.0
         )
 
-    def velocity_km_s(self, time_s: np.ndarray) -> np.ndarray:
+    def velocity_km_s(self, orbital_km_s: np.ndarray) -> np.ndarray:
         """Spacecraft velocity with respect to the CMB, (n, 3)."""
-        velocity = np.broadcast_to(self.solar_velocity_km_s, (time_s.size, 3)).copy()
+        velocity = np.broadcast_to(self.solar_velocity_km_s, orbital_km_s.shape).copy()
         if self.config.sky.include_orbital_velocity:
-            velocity += self.orbit.position_velocity(time_s)[1]
+            velocity += orbital_km_s
         return velocity
+
+    def sky_mjy_sr(self, table: np.ndarray) -> np.ndarray:
+        """Total sky along the boresight: Isotropic backgrounds + Static sky, (n, n_freq)."""
+        direction = table["boresight"]
+        orbital_km_s = self.orbit.position_velocity(table["time_mid_s"])[1]
+        sky = boosted_isotropic_background_mjy_sr(
+            self.freq_ghz,
+            direction,
+            self.velocity_km_s(orbital_km_s),
+            self.config.sky,
+            self.beam_factor,
+        )
+        if self.static_sky is not None:
+            static = self.static_sky.sample(direction)
+            if self.config.static_sky.orbital_doppler:
+                static += orbital_doppler_mjy_sr(
+                    self.freq_ghz, static, direction, orbital_km_s
+                )
+            sky += static
+        return sky
 
     def compute(
         self, table: np.ndarray
     ) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray]:
         """DU differential spectra, sky estimate and BBIR spectra for a block of IFGs."""
-        sky = boosted_isotropic_background_mjy_sr(
-            self.freq_ghz,
-            table["boresight"],
-            self.velocity_km_s(table["time_mid_s"]),
-            self.config.sky,
-            self.beam_factor,
-        )
+        sky = self.sky_mjy_sr(table)
         bbir = bbir_spectra_mjy_sr(self.freq_ghz, table["bbir_port_temperature_k"])
         port1, port2 = port_spectra_mjy_sr(sky, bbir, table["mode"])
         du_spectra = du_differential_spectra(self.freq_ghz, port1, port2, self.dus)
@@ -187,6 +206,7 @@ def run_simulation(
     comm=None,
     spectral: bool = True,
     output_dir: str | Path | None = None,
+    static_sky: StaticSky | None = None,
 ) -> SimulationResult:
     """Run the mission (or its first ``num_of_cycles`` cycles) and accumulate maps.
 
@@ -202,6 +222,10 @@ def run_simulation(
         Compute the signal and the spectral maps (otherwise hit maps only).
     output_dir : path, optional
         Where per-cycle TOD files go when ``config.output.save_tod`` is true.
+    static_sky : StaticSky, optional
+        Pre-built Static sky; by default it is loaded from (or built into) the
+        cache when ``config.static_sky.models`` is not empty. With MPI, rank 0
+        builds it and the other ranks read the cache.
     """
     if config.output.save_tod and (output_dir is None or not spectral):
         raise ValueError("save_tod needs spectral=True and an output_dir")
@@ -212,7 +236,9 @@ def run_simulation(
         config.simulation.mission_start_time,
         total_cycles * config.timeline.cycle_duration_s,
     )
-    model = SignalModel(config, orbit) if spectral else None
+    if spectral and static_sky is None and config.static_sky.models:
+        static_sky = _load_static_sky(config, comm)
+    model = SignalModel(config, orbit, static_sky) if spectral else None
     result = SimulationResult(
         hit_maps=HitMaps(config.maps.nsides),
         spectral_maps=SpectralMaps(config.maps.nsides, model.freq_ghz)
@@ -287,3 +313,18 @@ def _process_signal(config, model, table, spectral_maps, cycle_id, output_dir) -
         }
         path = Path(output_dir) / "tod" / f"cycle_{cycle_id:05d}.h5"
         write_cycle_tod(path, config, model, table, du_spectra)
+
+
+def _load_static_sky(config: Config, comm) -> StaticSky:
+    """Build the Static sky on rank 0 (if not cached), then load it everywhere."""
+    args = (
+        config.static_sky,
+        frequency_grid_ghz(config.instrument),
+        config.instrument.beam_fwhm_deg,
+    )
+    if comm is None:
+        return StaticSky(*args)
+    if comm.rank == 0:
+        StaticSky(*args)
+    comm.Barrier()
+    return StaticSky(*args)

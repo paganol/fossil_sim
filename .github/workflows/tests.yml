@@ -11,6 +11,13 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --extra dev
+      - uses: actions/cache@v4
+        with:
+          # pysm3 templates (astropy download cache) and the Static-sky cube
+          path: |
+            ~/.astropy/cache
+            notebooks/cache
+          key: static-sky-${{ hashFiles('configs/baseline.toml', 'uv.lock') }}
       - run: uv run ruff format --check .
       - run: uv run ruff check .
       - run: uv run pytest -m "not heavy"
@@ -26,6 +33,10 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --extra dev
+      - uses: actions/cache@v4
+        with:
+          path: ~/.astropy/cache
+          key: pysm3-data-${{ hashFiles('uv.lock') }}
       - run: uv run --with litebird_sim --with "git+https://github.com/paganol/BISOU-sky" pytest -m heavy
 
   mpi:

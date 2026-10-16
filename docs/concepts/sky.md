@@ -5,8 +5,7 @@ The sky is split into two parts ({doc}`../adr/0002-isotropic-backgrounds-in-time
 - the **Isotropic backgrounds**, isotropic in the CMB rest frame, evaluated
   for every IFG with the exact Boost to the spacecraft frame;
 - the **Static sky**, the time-independent anisotropies (Galactic
-  foregrounds, CMB anisotropies), without monopole or dipole (planned for
-  v0.1.2).
+  foregrounds, CMB anisotropies), defined in the barycentric frame.
 
 ## Boost
 
@@ -119,10 +118,58 @@ $kT_e = 1.24$ keV {cite}`hill2015` and $\mu = 2\times 10^{-8}$
 {cite}`chluba2016`. Any component is switched off by setting its amplitude to
 zero.
 
-## Static sky (planned)
+## Static sky
 
-The Static sky will be generated following litebird_sim's `SkyGenerator`:
-pysm3 foreground models in MJy sr⁻¹, converted to spherical harmonics,
-smoothed with the Gaussian beam, rotated to the J2000 ecliptic and cached as
-an alm cube $a_{\ell m}(\nu)$. Each IFG then samples it exactly at the
-boresight with `ducc0.sht.synthesis_general`, avoiding pixelization errors.
+The Static sky contains the anisotropic, time-independent emission: Galactic
+foregrounds and CMB anisotropies from pysm3, following the design of
+litebird_sim's `SkyGenerator`.
+
+### Generation
+
+For every frequency bin $\nu_k$ (a delta bandpass at the bin centre,
+consistent with the Isotropic backgrounds):
+
+1. pysm3 evaluates the total intensity of the chosen models in MJy sr⁻¹ at
+   $N_\mathrm{side}^\mathrm{eval} = 2\,N_\mathrm{side}$, Galactic coordinates;
+2. the map is expanded in spherical harmonics up to $\ell_\mathrm{max}$
+   (`healpy.map2alm`, 3 iterations);
+3. for extragalactic models (`cib*`, `tsz*`, `ksz*`, `rg*`) the monopole is
+   removed, $a_{00} = 0$, since it belongs to the Isotropic backgrounds;
+   Galactic models keep their physical monopole and dipole; `dip*` and `co*`
+   are rejected by the configuration;
+4. the Gaussian beam is applied, $a_{\ell m} \to b_\ell\, a_{\ell m}$;
+5. the alm are rotated from Galactic to J2000 ecliptic coordinates.
+
+The cube $a_{\ell m}(\nu_k)$ is cached in HDF5 under a name derived from a
+hash of everything that determines it (models, resolutions, beam, frequency
+grid, pysm3 version), so it is built once and reused.
+
+### Sampling
+
+Each IFG samples the cube at the exact boresight direction,
+
+$$
+I_\mathrm{static}(\nu_k, \hat{\mathbf n}) = \sum_{\ell \le \ell_\mathrm{max}} \sum_{m} a_{\ell m}(\nu_k)\, Y_{\ell m}(\hat{\mathbf n}),
+$$
+
+with `ducc0.sht.synthesis_general` (relative accuracy $10^{-9}$). No pixel
+window is involved. A faster nearest-pixel sampling of maps at
+$N_\mathrm{side}$ is available for quick runs.
+
+### Orbital Doppler
+
+The pysm3 templates derive from maps averaged over years of observations from
+L2, i.e. in the barycentric frame ({doc}`../adr/0003-static-sky-barycentric-frame`).
+Relative to it the spacecraft moves with the orbital velocity
+$\boldsymbol\beta_\mathrm{orb}$ only. Expanding the Boost to first order,
+$\nu' \simeq \nu\,(1 - \boldsymbol\beta_\mathrm{orb}\cdot\hat{\mathbf n})$ and
+
+$$
+I_\mathrm{obs}(\nu) \simeq \left(1 + 3\,\boldsymbol\beta_\mathrm{orb}\cdot\hat{\mathbf n}\right)\left[I(\nu) - \boldsymbol\beta_\mathrm{orb}\cdot\hat{\mathbf n}\, \frac{dI}{d\ln\nu}\right]
+\simeq I(\nu) + \boldsymbol\beta_\mathrm{orb}\cdot\hat{\mathbf n}\left[3\,I(\nu) - \frac{dI}{d\ln\nu}\right],
+$$
+
+with $dI/d\ln\nu$ computed by finite differences on the frequency grid. For
+a power law $I \propto \nu^\alpha$ the correction is
+$(3 - \alpha)\,\boldsymbol\beta_\mathrm{orb}\cdot\hat{\mathbf n}\, I$. Aberration (about 20″)
+and $O(\beta^2)$ terms are neglected.
