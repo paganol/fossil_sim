@@ -41,7 +41,7 @@ interferogram model is available for illustration
 |---|---|
 | 0.1 | Configuration, orbit, scanning strategy, timeline, hit maps |
 | 0.1.1 | Isotropic backgrounds with exact Boost, signal for all Modes, spectral maps |
-| 0.1.2 (planned) | Static sky: pysm3 foregrounds as alm, sampled with ducc0 |
+| 0.1.2 | Static sky: pysm3 foregrounds as alm, sampled with ducc0, orbital Doppler |
 | 0.1.3 (planned) | Zodiacal light (zodipy) |
 | 0.1.4 (planned) | Spectral-domain noise |
 
