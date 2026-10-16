@@ -11,7 +11,7 @@ T_CMB_K = 2.72548
 # litebird_sim (constants.EARTH_L2_DISTANCE_KM)
 EARTH_L2_DISTANCE_KM = 1_496_509.30522
 
-# Solar dipole, Planck 2018 I (arXiv:1807.06205); same values as litebird_sim
+# Solar dipole, Planck 2018 I (arXiv:1807.06205)
 SOLAR_VELOCITY_KM_S = 369.8160
 SOLAR_VELOCITY_GAL_LAT_RAD = 0.842_173_724
 SOLAR_VELOCITY_GAL_LON_RAD = 4.608_035_744_4

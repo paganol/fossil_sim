@@ -29,8 +29,7 @@ max_saa_deg = 10.0                        # Step2 §5.4.2 (max Solar Aspect Angl
 
 [orbit]
 # L2 approximated as Earth position/velocity scaled along the Sun-Earth line,
-# plus a Lissajous orbit. Model and default values as in litebird_sim
-# (SpacecraftOrbit), i.e. the WMAP orbit of Cavaluzzi, Fink & Coyle (2008).
+# plus a Lissajous orbit. Default values: WMAP orbit, Cavaluzzi, Fink & Coyle (2008).
 earth_l2_distance_km = 1496509.30522      # litebird_sim constants.EARTH_L2_DISTANCE_KM
 lissajous_radius1_km = 244450.0           # TBD — placeholder (WMAP)
 lissajous_radius2_km = 137388.0           # TBD — placeholder (WMAP)
