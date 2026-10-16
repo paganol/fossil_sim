@@ -103,6 +103,23 @@ class MapsConfig:
 
 
 @dataclass(frozen=True)
+class InstrumentConfig:
+    freq_min_ghz: float
+    freq_max_ghz: float
+    freq_step_ghz: float
+    band_min_ghz: float
+    band_max_ghz: float
+    dichroic_split_ghz: float
+    beam_fwhm_deg: float
+
+
+@dataclass(frozen=True)
+class IFGConfig:
+    max_mirror_position_m: float
+    samples_per_ifg: int
+
+
+@dataclass(frozen=True)
 class Config:
     simulation: SimulationConfig
     timeline: TimelineConfig
@@ -111,6 +128,8 @@ class Config:
     operations: OperationsConfig
     bbir: BBIRConfig
     maps: MapsConfig
+    instrument: InstrumentConfig
+    ifg: IFGConfig
     source_path: str | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:

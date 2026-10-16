@@ -52,3 +52,20 @@ hf_cavity_k = 0.0                         # TBD — 0 = HF cavity off
 
 [maps]
 nsides = [64, 128]
+
+[instrument]
+freq_min_ghz = 60.0                       # TBD — frequency grid as bisou_sky default,
+freq_max_ghz = 2000.0                     # np.arange(60, 2000, 15); final grid with the FTS team
+freq_step_ghz = 15.0
+band_min_ghz = 50.0                       # Step2 (FTS band 50–2000 GHz)
+band_max_ghz = 2000.0                     # Step2
+dichroic_split_ghz = 300.0                # Step2 (LF/HF split at each output)
+beam_fwhm_deg = 1.6                       # Step2
+
+[ifg]
+# Ideal-FTS interferogram (illustration only in v0.1). Modulation cos(4π ν δ / c)
+# with δ the mirror position (Step2 formula), so the spectral resolution is
+# c / (4 δ_max) and Nyquist sampling of ν_max needs a step in δ <= c / (4 ν_max).
+max_mirror_position_m = 0.005             # TBD — placeholder: c / (4 × 15 GHz), matches freq_step_ghz
+samples_per_ifg = 512                     # TBD — placeholder: symmetric scan −δ_max..+δ_max,
+                                          # step 19.6 µm < c / (4 × 2000 GHz) = 37.5 µm
