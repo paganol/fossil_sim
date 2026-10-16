@@ -15,3 +15,15 @@ jobs:
       - run: uv run ruff check .
       - run: uv run pytest -m "not heavy"
       - run: uv run pytest --nbmake notebooks
+
+  oracle:
+    # Optional cross-check of the pointing against litebird_sim
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - run: uv run --with litebird_sim pytest -m heavy
