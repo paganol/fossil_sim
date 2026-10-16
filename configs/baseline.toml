@@ -3,7 +3,8 @@
 
 [simulation]
 master_seed = 20260101                    # arbitrary
-mission_start = "2040-01-01T00:00:00"     # TBD — placeholder (TDB)
+mission_start = "2040-01-01T00:00:00"     # TBD — placeholder (TDB): start of science
+                                          # operations at L2, not launch
 duration_days = 1278.375                  # 3.5 yr nominal mission, Step2
 
 [timeline]
