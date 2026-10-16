@@ -163,12 +163,14 @@ fig.tight_layout()"""),
 ]
 
 spectral = [
-    md("""# Spectral maps: Isotropic backgrounds and the kinematic dipole
+    md("""# Spectral maps: Isotropic backgrounds, Static sky and the kinematic dipole
 
-v0.1.1 sky: the Isotropic backgrounds (CMB blackbody, y with relativistic
-corrections, μ, CIB, extragalactic CO), observed with the exact Boost from the
-solar plus orbital velocity (ADR 0002). No Static sky, zodiacal light or noise
-yet. The sky estimate assumes perfect calibration."""),
+The sky is the sum of the Isotropic backgrounds (CMB blackbody, y with
+relativistic corrections, μ, CIB, extragalactic CO), observed with the exact
+Boost from the solar plus orbital velocity (ADR 0002), and of the Static sky
+(pysm3 foregrounds and CMB anisotropies, with the orbital Doppler term,
+ADR 0003). No zodiacal light or noise yet. The sky estimate assumes perfect
+calibration. The first run builds the Static-sky cache (about 30 s)."""),
     code("""from pathlib import Path
 
 import healpy as hp
@@ -219,6 +221,28 @@ fig, ax = plt.subplots(figsize=(7, 3))
 ax.plot(days, dipole_mk)
 ax.set(xlabel="days since mission start", ylabel="dipole amplitude [mK]")
 fig.tight_layout()"""),
+    md("""## Static sky
+
+The cached alm cube sampled on a HEALPix grid (ecliptic coordinates), and its
+orbital Doppler term: on the Galactic plane at THz frequencies it is far
+larger than the y distortion."""),
+    code("""from fossil_sim.input_sky import StaticSky, orbital_doppler_mjy_sr
+from fossil_sim.instrument import frequency_grid_ghz
+
+grid_ghz = frequency_grid_ghz(config.instrument)
+static = StaticSky(config.static_sky, grid_ghz, config.instrument.beam_fwhm_deg)
+nside = 64
+vectors = np.array(hp.pix2vec(nside, np.arange(hp.nside2npix(nside)))).T
+static_maps = static.sample(vectors)
+v_orbit = np.broadcast_to(orbit.position_velocity(0.0)[1][0], vectors.shape)
+doppler = orbital_doppler_mjy_sr(grid_ghz, static_maps, vectors, v_orbit)
+fig = plt.figure(figsize=(12, 7))
+for k, freq in enumerate((150, 1005)):
+    i = np.argmin(np.abs(grid_ghz - freq))
+    hp.mollview(static_maps[:, i], fig=fig, sub=(2, 2, k + 1), norm="hist",
+                title=f"Static sky, {freq} GHz", unit="MJy/sr")
+    hp.mollview(doppler[:, i], fig=fig, sub=(2, 2, k + 3),
+                title=f"Orbital Doppler, {freq} GHz", unit="MJy/sr")"""),
     md("## 30 days of spectral maps"),
     code("""result = run_simulation(config, num_of_cycles=21)
 maps = result.spectral_maps
@@ -229,9 +253,12 @@ f = maps.freq_ghz[i150]
 dbdt = (blackbody_mjy_sr(f, t_k + 1e-4) - blackbody_mjy_sr(f, t_k - 1e-4)) / 2e-4
 delta_t_mk = np.full(sky_map.shape[1], hp.UNSEEN)
 delta_t_mk[seen] = 1e3 * (sky_map[i150, seen] - isotropic_background_mjy_sr(f, sky)) / dbdt
-hp.mollview(delta_t_mk, title=f"ΔT at {f:.0f} GHz, 30 days (kinematic dipole)", unit="mK")
-_, dipole = hp.fit_dipole(np.where(seen, delta_t_mk, hp.UNSEEN))
-print(f"Fitted dipole: {np.linalg.norm(dipole):.4f} mK")"""),
+hp.mollview(delta_t_mk, title=f"ΔT at {f:.0f} GHz, 30 days", unit="mK")
+# Fit the dipole away from the Galactic plane (|b| > 30°)
+gal_vectors = hp.Rotator(coord=["E", "G"])(np.array(hp.pix2vec(64, np.arange(hp.nside2npix(64)))))
+high_latitude = np.abs(gal_vectors[2]) > np.sin(np.deg2rad(30))
+_, dipole = hp.fit_dipole(np.where(seen & high_latitude, delta_t_mk, hp.UNSEEN))
+print(f"Fitted dipole (|b| > 30°): {np.linalg.norm(dipole):.4f} mK")"""),
     md("""## Diagnostic maps
 
 The same output (L) in B10 and B01 sees the sky with opposite sign; the
