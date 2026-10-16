@@ -6,9 +6,11 @@ All vectors are barycentric, in the mean ecliptic frame of J2000
 
 The model follows the one of litebird_sim (``spacecraft.py``): L2 is the
 Earth position and velocity scaled along the barycenter-Earth line, plus a
-Lissajous orbit with an along-track and an out-of-ecliptic component. A
-proper halo orbit can replace :class:`L2Orbit` by providing the same
-methods.
+Lissajous orbit with an along-track and an out-of-ecliptic component.
+Limitation: there is no radial component, while real L2 halo/Lissajous
+orbits have one of comparable amplitude (~0.1 km/s in velocity, relevant
+for the orbital dipole). A reference orbit from the mission team can
+replace :class:`L2Orbit` by providing the same methods.
 """
 
 import numpy as np
