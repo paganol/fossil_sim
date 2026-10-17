@@ -169,9 +169,11 @@ The sky is the sum of the Isotropic backgrounds (CMB blackbody, y with
 relativistic corrections, μ, CIB, extragalactic CO), observed with the exact
 Boost from the solar plus orbital velocity (ADR 0002), and of the Static sky
 (pysm3 foregrounds and CMB anisotropies, with the orbital Doppler term,
-ADR 0003). No zodiacal light or noise yet. The sky estimate assumes perfect
+ADR 0003), plus the zodiacal light seen from the spacecraft (zodipy, planck18).
+No noise yet. The sky estimate assumes perfect
 calibration. The first run builds the Static-sky cache (about 30 s)."""),
-    code("""from pathlib import Path
+    code("""from dataclasses import replace
+from pathlib import Path
 
 import healpy as hp
 import matplotlib.pyplot as plt
@@ -191,6 +193,7 @@ from fossil_sim.spectra import (
 )
 
 config = load_config(Path.cwd().parent / "configs" / "baseline.toml")
+config = replace(config, zodi=replace(config.zodi, nprocesses=4))
 sky = config.sky"""),
     md("## Rest-frame spectra of the Isotropic backgrounds"),
     code("""freq_ghz = np.geomspace(30, 2000, 400)
@@ -243,6 +246,20 @@ for k, freq in enumerate((150, 1005)):
                 title=f"Static sky, {freq} GHz", unit="MJy/sr")
     hp.mollview(doppler[:, i], fig=fig, sub=(2, 2, k + 3),
                 title=f"Orbital Doppler, {freq} GHz", unit="MJy/sr")"""),
+    md("""## Zodiacal light
+
+zodipy (planck18 model) seen from the spacecraft at mission start: brightest
+along the ecliptic and towards the Sun, rising steeply with frequency. FOSSIL
+only observes at about 90° elongation (the great circle perpendicular to the
+anti-Sun Spin axis)."""),
+    code("""from fossil_sim.input_sky import ZodiacalLight
+
+zodi = ZodiacalLight(config, orbit, np.array([545.0, 1500.0]))
+zodi_maps = zodi.evaluate(vectors, np.zeros(len(vectors)))
+fig = plt.figure(figsize=(12, 3.5))
+for k, freq in enumerate((545, 1500)):
+    hp.mollview(zodi_maps[:, k], fig=fig, sub=(1, 2, k + 1),
+                title=f"Zodiacal light, {freq} GHz (ecliptic)", unit="MJy/sr", norm="log")"""),
     md("## 30 days of spectral maps"),
     code("""result = run_simulation(config, num_of_cycles=21)
 maps = result.spectral_maps
