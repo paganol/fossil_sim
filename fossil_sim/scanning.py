@@ -153,3 +153,22 @@ def cycle_pointing(
     return CyclePointing(
         spin_axis=axes, boresight=boresight, saa_rad=np.arccos(cos_saa)
     )
+
+
+def ring_circles(config: Config, axes: np.ndarray) -> np.ndarray:
+    """Boresight of every IFG phase of each Ring, shape (n_rings, ifgs_per_scan, 3).
+
+    The Scans of a Ring retrace this circle (Spin axis frozen within the Ring).
+    """
+    n_ifg = config.timeline.ifgs_per_scan
+    phase_rad = 2 * np.pi * (np.arange(n_ifg) + 0.5) / n_ifg
+    ring = np.repeat(np.arange(axes.shape[0]), n_ifg)
+    out = np.empty((ring.size, 3))
+    _boresight_kernel(
+        axes,
+        ring,
+        np.tile(phase_rad, axes.shape[0]),
+        np.deg2rad(config.scanning.spin_boresight_angle_deg),
+        out,
+    )
+    return out.reshape(axes.shape[0], n_ifg, 3)

@@ -94,6 +94,17 @@ orbital_doppler = true                    # first-order Doppler from the orbital
 cache_dir = "cache/static_sky"            # relative to the working directory
 sampling = "alm"                          # "alm" (ducc0, exact) | "nearest" (pixel)
 
+[zodi]
+# Zodiacal light (zodipy), seen from the spacecraft position of [orbit].
+# Evaluated on the 720 directions of each Ring at its start and end, linearly
+# interpolated in time (the Scans of a Ring retrace the same circle).
+enabled = true
+model = "planck18"                        # Planck Collaboration 2018 (calibrated 100–857 GHz);
+                                          # prompt: prefer planck18 below ~1 THz
+extrapolate = true                        # needed outside 100–857 GHz (~20 % uncertainty above)
+gauss_quad_degree = 50                    # zodipy default (points per line of sight)
+nprocesses = 1                            # zodipy parallelism (performance only)
+
 [output]
 save_tod = false                          # one HDF5 file per Cooler cycle when true
 

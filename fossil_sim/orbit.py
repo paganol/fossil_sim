@@ -145,11 +145,14 @@ class L2Orbit:
         )
         return pos_km, vel_km_s
 
+    def heliocentric_position_km(self, time_s: np.ndarray) -> np.ndarray:
+        """Spacecraft position relative to the Sun, J2000 ecliptic axes, shape (n, 3)."""
+        time_s = np.atleast_1d(np.asarray(time_s, dtype=np.float64))
+        return self.position_velocity(time_s)[0] - self._sun_pos(time_s)
+
     def anti_sun_direction(self, time_s: np.ndarray) -> np.ndarray:
         """Unit vector from the Sun to the spacecraft, shape (n, 3)."""
-        time_s = np.atleast_1d(np.asarray(time_s, dtype=np.float64))
-        pos_km, _ = self.position_velocity(time_s)
-        direction = pos_km - self._sun_pos(time_s)
+        direction = self.heliocentric_position_km(time_s)
         return direction / np.linalg.norm(direction, axis=1, keepdims=True)
 
     def anti_sun_longitude_rad(self, time_s: np.ndarray) -> np.ndarray:

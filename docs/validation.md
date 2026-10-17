@@ -34,6 +34,9 @@ physics and the mission design.
   $10^{-6}$; cache reused and keyed by content; nearest-pixel sampling
   consistent with the exact alm sampling; first-order Doppler
   $(3 - \alpha)\,\beta\cdot\hat{\mathbf n}\,I$ for power laws.
+- Zodiacal light: Ring-by-Ring interpolation equal to the direct zodipy
+  evaluation to $2\times10^{-5}$ (mid-Ring and Recycling IFGs); brighter on
+  the ecliptic than at the pole, rising with frequency.
 - Static sky with real pysm3 models: dust dominates at THz on the Galactic
   plane (optional test).
 - Ideal-FTS interferogram round trip exact; L + R constant.

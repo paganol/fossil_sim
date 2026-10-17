@@ -16,6 +16,7 @@ dependencies = [
     "matplotlib>=3.8",
     "pysm3>=3.4.6",
     "ducc0>=0.41.0",
+    "zodipy>=1.1.5",
 ]
 
 [project.optional-dependencies]
@@ -46,6 +47,8 @@ path = "fossil_sim/version.py"
 addopts = "--doctest-modules"
 testpaths = ["fossil_sim", "test"]
 markers = ["heavy: needs optional heavy packages (litebird_sim, pysm3, zodipy)"]
+# UTC leap seconds after today are unknown: harmless for TDB-based times
+filterwarnings = ["ignore:.*dubious year:erfa.ErfaWarning"]
 
 [tool.ruff.lint.per-file-ignores]
 "*.ipynb" = ["E402"]
