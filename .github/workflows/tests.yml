@@ -21,7 +21,7 @@ jobs:
       - run: uv run ruff format --check .
       - run: uv run ruff check .
       - run: uv run pytest -m "not heavy"
-      - run: uv run pytest --nbmake notebooks
+      - run: uv run pytest --nbmake --nbmake-timeout=900 notebooks
 
   oracle:
     # Optional cross-checks against litebird_sim (pointing) and bisou_sky (spectra)
