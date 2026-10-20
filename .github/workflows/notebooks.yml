@@ -1,0 +1,43 @@
+name: notebooks
+
+# Regenerate the example notebooks on main and commit them with their outputs,
+# so that GitHub and the documentation show them executed.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: notebooks
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --extra dev
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.astropy/cache
+            notebooks/cache
+          key: static-sky-${{ hashFiles('configs/baseline.toml', 'uv.lock') }}
+          restore-keys: static-sky-
+      - run: uv run python scripts/build_notebooks.py
+      - run: uv run ruff check --fix notebooks && uv run ruff format notebooks
+      - name: Commit the executed notebooks
+        run: |
+          git add notebooks/*.ipynb
+          if git diff --cached --quiet; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Execute the example notebooks [skip ci]"
+          git pull --rebase
+          git push
