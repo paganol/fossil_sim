@@ -31,6 +31,11 @@ over the Valid science IFGs $i$ in pixel $p$. Diagnostic maps bin the
 differential spectrum $d(\nu)$ of each output (L, R) separately for B10 and
 B01. Pixels never observed are set to `healpy.UNSEEN`.
 
+When noise is on, the white-noise variance map of the sky is
+$\sigma^2(\nu) / N_p$, with $\sigma^2(\nu)$ the variance per IFG of
+$\hat S(\nu)$ (the mean of the L and R estimates: half the per-DU variance).
+It is exact because the noise level is the same for all Valid IFGs.
+
 This is the optimal estimator for white noise of equal variance and no
 time-correlated systematics; more general map-makers will be needed once
 noise and calibration errors are introduced.

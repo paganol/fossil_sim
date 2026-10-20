@@ -4,7 +4,7 @@
 
 FOSSIL observes the sky with an absolute FTS in the spirit of PIXIE
 {cite}`kogut2011`. The spectrometer has two inputs (Ports) and two outputs;
-at each output a dichroic splits the band at 300 GHz, giving four detector
+at each output a dichroic splits the band at 200 GHz, giving four detector
 units (DUs). The modulated part of each output is proportional to the
 *difference* of the two input spectra, with opposite signs at the two outputs.
 Two beam-switching mechanisms (BSMs) send each Port either to the sky, through
@@ -43,7 +43,7 @@ interferogram model is available for illustration
 | 0.1.1 | Isotropic backgrounds with exact Boost, signal for all Modes, spectral maps |
 | 0.1.2 | Static sky: pysm3 foregrounds as alm, sampled with ducc0, orbital Doppler |
 | 0.1.3 | Zodiacal light (zodipy) seen from the spacecraft, evaluated Ring by Ring |
-| 0.1.4 (planned) | Spectral-domain noise |
+| 0.1.4 | Spectral-domain white noise per DU, variance maps |
 
 Several design ideas come from litebird_sim, which is used only as an optional
 validation oracle, and from bisou_sky for the sky model; fossil_sim depends on

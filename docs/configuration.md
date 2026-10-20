@@ -19,6 +19,7 @@ identify a run ({meth}`fossil_sim.config.Config.provenance`).
 | `[sky]` | Isotropic backgrounds, solar velocity, beam on the dipole |
 | `[static_sky]` | pysm3 models, resolution, cache, sampling, orbital Doppler |
 | `[zodi]` | zodipy model, extrapolation, quadrature, parallelism |
+| `[noise]` | NEPs, étendue, efficiencies, Recycling noise factor |
 | `[output]` | per-cycle TOD files |
 | `[ifg]` | OPD range, samples per IFG, OPD per mirror displacement |
 
