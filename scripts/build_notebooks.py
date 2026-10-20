@@ -4,8 +4,9 @@ Usage::
 
     uv run python scripts/build_notebooks.py [output_dir]   # default: notebooks/
 
-The notebooks are committed with their outputs (the documentation shows them
-without re-executing); rerun this script when results change.
+On every push to main, the ``notebooks`` workflow runs this script and
+commits the notebooks with their outputs; GitHub and the documentation show
+them executed. Pull requests only edit this script (CI checks it runs).
 """
 
 import sys
