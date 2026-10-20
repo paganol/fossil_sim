@@ -55,8 +55,8 @@ hf_cavity_k = 0.0                         # TBD — 0 = HF cavity off
 nsides = [64, 128]
 
 [instrument]
-freq_min_ghz = 60.0                       # TBD — frequency grid as bisou_sky default,
-freq_max_ghz = 2000.0                     # np.arange(60, 2000, 15); final grid with the FTS team
+freq_min_ghz = 30.0                       # TBD — np.arange(30, 2000, 15): M8 band edge and
+freq_max_ghz = 2000.0                     # 15 GHz resolution; final grid with the FTS team
 freq_step_ghz = 15.0
 band_min_ghz = 30.0                       # M8 proposal §2.1 (FTS band 30–2000 GHz);
                                           # Step2 had 50 GHz
