@@ -14,6 +14,7 @@ import numpy as np
 from .config import MODES, Config
 from .input_sky import (
     StaticSky,
+    ZodiacalLight,
     boosted_isotropic_background_mjy_sr,
     dipole_beam_factor,
     orbital_doppler_mjy_sr,
@@ -30,7 +31,7 @@ from .operations import (
     operation_flags,
 )
 from .orbit import L2Orbit
-from .scanning import cycle_pointing
+from .scanning import cycle_pointing, ring_spin_axes
 from .signal import (
     bbir_spectra_mjy_sr,
     du_differential_spectra,
@@ -48,6 +49,8 @@ IFG_DTYPE = np.dtype(
         ("cycle_id", np.int32),
         ("ring_id", np.int32),  # -1 during the Recycling window
         ("scan_id", np.int32),
+        ("ring_in_cycle", np.int8),  # last Ring during the Recycling window
+        ("ifg_in_scan", np.int16),
         ("boresight", np.float64, 3),  # unit vector, J2000 ecliptic
         ("mode", np.int8),  # index into config.MODES
         ("flags", np.uint8),
@@ -78,6 +81,8 @@ def build_ifg_table(config: Config, orbit: L2Orbit, cycle_id: int) -> np.ndarray
     table["cycle_id"] = cycle_id
     table["ring_id"] = timeline.ring_id
     table["scan_id"] = timeline.scan_id
+    table["ring_in_cycle"] = timeline.ring_in_cycle
+    table["ifg_in_scan"] = timeline.ifg_in_scan
     table["boresight"] = pointing.boresight
     table["mode"] = mode
     table["flags"] = flags
@@ -90,7 +95,7 @@ def build_ifg_table(config: Config, orbit: L2Orbit, cycle_id: int) -> np.ndarray
 
 
 class SignalModel:
-    """Spectral-domain signal of each IFG (no noise in v0.1.1)."""
+    """Spectral-domain signal of each IFG (no noise yet)."""
 
     def __init__(
         self, config: Config, orbit: L2Orbit, static_sky: StaticSky | None = None
@@ -99,6 +104,9 @@ class SignalModel:
         self.orbit = orbit
         self.static_sky = static_sky
         self.freq_ghz = frequency_grid_ghz(config.instrument)
+        self.zodi = (
+            ZodiacalLight(config, orbit, self.freq_ghz) if config.zodi.enabled else None
+        )
         self.dus = detector_units(config.instrument)
         self.solar_velocity_km_s = solar_velocity_km_s(config.sky)
         self.beam_factor = (
@@ -114,8 +122,21 @@ class SignalModel:
             velocity += orbital_km_s
         return velocity
 
-    def sky_mjy_sr(self, table: np.ndarray) -> np.ndarray:
-        """Total sky along the boresight: Isotropic backgrounds + Static sky, (n, n_freq)."""
+    def zodi_for_cycle(self, cycle_id: int, table: np.ndarray) -> np.ndarray | None:
+        """Zodiacal light of a whole cycle (evaluated Ring by Ring), or None if disabled."""
+        if self.zodi is None:
+            return None
+        axes = ring_spin_axes(self.config, self.orbit, cycle_id)
+        return self.zodi.for_cycle(cycle_id, axes, table)
+
+    def sky_mjy_sr(
+        self, table: np.ndarray, zodi: np.ndarray | None = None
+    ) -> np.ndarray:
+        """Total sky along the boresight, (n, n_freq).
+
+        Isotropic backgrounds (boosted) + Static sky (with orbital Doppler) +
+        zodiacal light (precomputed for the block, see :meth:`zodi_for_cycle`).
+        """
         direction = table["boresight"]
         orbital_km_s = self.orbit.position_velocity(table["time_mid_s"])[1]
         sky = boosted_isotropic_background_mjy_sr(
@@ -132,13 +153,15 @@ class SignalModel:
                     self.freq_ghz, static, direction, orbital_km_s
                 )
             sky += static
+        if zodi is not None:
+            sky += zodi
         return sky
 
     def compute(
-        self, table: np.ndarray
+        self, table: np.ndarray, zodi: np.ndarray | None = None
     ) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray]:
         """DU differential spectra, sky estimate and BBIR spectra for a block of IFGs."""
-        sky = self.sky_mjy_sr(table)
+        sky = self.sky_mjy_sr(table, zodi)
         bbir = bbir_spectra_mjy_sr(self.freq_ghz, table["bbir_port_temperature_k"])
         port1, port2 = port_spectra_mjy_sr(sky, bbir, table["mode"])
         du_spectra = du_differential_spectra(self.freq_ghz, port1, port2, self.dus)
@@ -293,9 +316,11 @@ def _process_signal(config, model, table, spectral_maps, cycle_id, output_dir) -
     """Signal and spectral maps of one cycle, in blocks of IFGs."""
     mode_names = np.asarray(MODES)
     tod_blocks = []
+    zodi = model.zodi_for_cycle(cycle_id, table)
     for start in range(0, table.size, SIGNAL_BLOCK_IFGS):
         block = table[start : start + SIGNAL_BLOCK_IFGS]
-        du_spectra, estimate, _ = model.compute(block)
+        block_zodi = None if zodi is None else zodi[start : start + SIGNAL_BLOCK_IFGS]
+        du_spectra, estimate, _ = model.compute(block, block_zodi)
         if config.output.save_tod:
             tod_blocks.append(du_spectra)
         valid = block["flags"] == 0

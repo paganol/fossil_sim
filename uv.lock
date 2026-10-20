@@ -783,6 +783,7 @@ dependencies = [
     { name = "numpy" },
     { name = "pysm3" },
     { name = "scipy" },
+    { name = "zodipy" },
 ]
 
 [package.optional-dependencies]
@@ -826,6 +827,7 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.13" },
     { name = "sphinx", marker = "extra == 'docs'", specifier = ">=8.1" },
     { name = "sphinxcontrib-bibtex", marker = "extra == 'docs'", specifier = ">=2.6" },
+    { name = "zodipy", specifier = ">=1.1.5" },
 ]
 provides-extras = ["dev", "docs", "mpi", "oracle"]
 
@@ -2991,4 +2993,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/dc/23/655a1802fe8041302c959774ca7c80b53bc24737ff3ef45cb50ef11bd96c/zipp-4.1.1.tar.gz", hash = "sha256:7ebb7a44c021b29fd8dbd7cce6812d0d7b5b454521f93cc71af6ccd155aaa70b", size = 27649, upload-time = "2026-10-03T17:03:03.452Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b5/98/df615823cd9419131ce19fba00de53a663794369e198aade064a244b385d/zipp-4.1.1-py3-none-any.whl", hash = "sha256:8979f52d874162f485ff2981e3891f3a3317b7a3dd43ff1e1775b9304f307a9c", size = 10582, upload-time = "2026-10-03T17:03:02.506Z" },
+]
+
+[[package]]
+name = "zodipy"
+version = "1.1.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "astropy" },
+    { name = "jplephem" },
+    { name = "numpy" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/55/86/611a77a69868dd781a764c396bcc74272a35df0df6d8ada0b32a46a8b4d7/zodipy-1.1.5.tar.gz", hash = "sha256:d70c2dbf206393268d62ef8798bd43c1f001b094fdd77583ec1a6b0b1c295cdf", size = 36689, upload-time = "2026-08-19T08:50:03.312Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c0/66/cec30db61431f9a3a997d98731e335773cc1016f85190ef57d475c0afdea/zodipy-1.1.5-py3-none-any.whl", hash = "sha256:f716c4432c5bbcbaf63f78e56c6c8cc9e1054a8af01051a6f33a8d50b9f98faf", size = 37769, upload-time = "2026-08-19T08:50:02.234Z" },
 ]
