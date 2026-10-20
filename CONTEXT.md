@@ -71,7 +71,7 @@ The pair of BSM states, written Bxy: x = BSM1, y = BSM2, 1 = sky, 0 = BBIR. The 
 _Avoid_: configuration, state
 
 **Detector unit (DU)**:
-One of LF-L, HF-L, LF-R, HF-R: an FTS output (L/R) split by the 300 GHz dichroic.
+One of LF-L, HF-L, LF-R, HF-R: an FTS output (L/R) split by the 200 GHz dichroic.
 _Avoid_: detector, channel
 
 ### Sky

@@ -58,9 +58,11 @@ nsides = [64, 128]
 freq_min_ghz = 60.0                       # TBD — frequency grid as bisou_sky default,
 freq_max_ghz = 2000.0                     # np.arange(60, 2000, 15); final grid with the FTS team
 freq_step_ghz = 15.0
-band_min_ghz = 50.0                       # Step2 (FTS band 50–2000 GHz)
-band_max_ghz = 2000.0                     # Step2
-dichroic_split_ghz = 300.0                # Step2 (LF/HF split at each output)
+band_min_ghz = 30.0                       # M8 proposal §2.1 (FTS band 30–2000 GHz);
+                                          # Step2 had 50 GHz
+band_max_ghz = 2000.0                     # M8 proposal §2.1
+dichroic_split_ghz = 200.0                # M8 proposal §2.1 (LF/HF split at each output);
+                                          # Step2 had 300 GHz
 beam_fwhm_deg = 1.6                       # Step2
 
 [sky]
@@ -104,6 +106,19 @@ model = "planck18"                        # Planck Collaboration 2018 (calibrate
 extrapolate = true                        # needed outside 100–857 GHz (~20 % uncertainty above)
 gauss_quad_degree = 50                    # zodipy default (points per line of sight)
 nprocesses = 1                            # zodipy parallelism (performance only)
+
+[noise]
+# Spectral-domain white noise per IFG, bin and DU (PIXIE, Kogut et al. 2011, §2):
+# δS_ν = NEP / (√(2 t_IFG) · AΩ · Δν · α · f_opt), Δν = instrument.freq_step_ghz.
+enabled = true
+nep_lf_w_sqrt_hz = 4.8e-16                # M8 proposal Table 2.3 (NEP_total, 30–200 GHz).
+nep_hf_w_sqrt_hz = 1.3e-14                # M8 proposal Table 2.3 (NEP_total, 200–2000 GHz).
+                                          # TBD — read as NEP per FPU (= per DU, 4 pixels
+                                          # combined); if per pixel, divide by √4
+etendue_cm2_sr = 4.0                      # TBD — placeholder PIXIE (Kogut et al. 2011)
+absorptivity = 0.57                       # TBD — placeholder PIXIE
+optical_efficiency = 0.90                 # TBD — placeholder PIXIE
+recycling_noise_factor = 3.0              # TBD — placeholder: noise × 3 in the Recycling window
 
 [output]
 save_tod = false                          # one HDF5 file per Cooler cycle when true
