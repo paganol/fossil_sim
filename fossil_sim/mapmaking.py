@@ -93,10 +93,18 @@ class SpectralMaps:
       diagnostic product (B10 and B01 have opposite sky sign).
 
     Sums are stored as (npix, n_freq) for contiguous accumulation.
+    ``noise_variance_per_ifg`` (per bin, MJy²/sr²), when given, yields the
+    white-noise variance maps of the sky, variance / hits.
     """
 
-    def __init__(self, nsides: tuple[int, ...], freq_ghz: np.ndarray) -> None:
+    def __init__(
+        self,
+        nsides: tuple[int, ...],
+        freq_ghz: np.ndarray,
+        noise_variance_per_ifg: np.ndarray | None = None,
+    ) -> None:
         self.freq_ghz = np.asarray(freq_ghz)
+        self.noise_variance_per_ifg = noise_variance_per_ifg
         n_freq = self.freq_ghz.size
         self.sky_sum = {n: np.zeros((hp.nside2npix(n), n_freq)) for n in nsides}
         self.sky_count = {n: np.zeros(hp.nside2npix(n), dtype=np.int64) for n in nsides}
@@ -159,6 +167,13 @@ class SpectralMaps:
         """Reconstructed sky, shape (n_freq, npix), MJy/sr; UNSEEN where not observed."""
         return self._average(self.sky_sum[nside], self.sky_count[nside])
 
+    def sky_variance_map(self, nside: int) -> np.ndarray:
+        """White-noise variance of the sky map, (n_freq, npix), (MJy/sr)²; UNSEEN where not observed."""
+        counts = self.sky_count[nside]
+        with np.errstate(invalid="ignore", divide="ignore"):
+            maps = self.noise_variance_per_ifg[:, None] / counts[None, :]
+        return np.where(np.isfinite(maps), maps, hp.UNSEEN)
+
     def raw_maps(self, nside: int) -> np.ndarray:
         """Differential spectra, shape (2 outputs, 2 Modes, n_freq, npix), MJy/sr."""
         return self._average(self.raw_sum[nside], self.raw_count[nside])
@@ -180,6 +195,17 @@ class SpectralMaps:
                 overwrite=True,
             )
             paths.append(path)
+            if self.noise_variance_per_ifg is not None:
+                path = output_dir / f"sky_variance_nside{nside:04d}.fits"
+                hp.write_map(
+                    path,
+                    self.sky_variance_map(nside),
+                    column_names=freq_names,
+                    column_units="(MJy/sr)^2",
+                    coord="E",
+                    overwrite=True,
+                )
+                paths.append(path)
             raw = self.raw_maps(nside)
             names = [
                 f"{o}_{m}_{f}"

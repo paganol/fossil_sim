@@ -165,6 +165,17 @@ class OutputConfig:
 
 
 @dataclass(frozen=True)
+class NoiseConfig:
+    enabled: bool
+    nep_lf_w_sqrt_hz: float
+    nep_hf_w_sqrt_hz: float
+    etendue_cm2_sr: float
+    absorptivity: float
+    optical_efficiency: float
+    recycling_noise_factor: float
+
+
+@dataclass(frozen=True)
 class IFGConfig:
     max_opd_m: float
     opd_per_mirror_position: float
@@ -186,6 +197,7 @@ class Config:
     static_sky: StaticSkyConfig
     zodi: ZodiConfig
     output: OutputConfig
+    noise: NoiseConfig
     source_path: str | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
@@ -294,4 +306,17 @@ def validate(config: Config) -> None:
         raise ValueError("zodi: gauss_quad_degree and nprocesses must be >= 1")
     if not bbir.setpoints_k or len(bbir.port_offsets_k) != 2:
         raise ValueError("bbir: setpoints_k non-empty, port_offsets_k of length 2")
+    nc = config.noise
+    if (
+        min(
+            nc.nep_lf_w_sqrt_hz,
+            nc.nep_hf_w_sqrt_hz,
+            nc.etendue_cm2_sr,
+            nc.absorptivity,
+            nc.optical_efficiency,
+            nc.recycling_noise_factor,
+        )
+        <= 0
+    ):
+        raise ValueError("noise: all parameters must be > 0")
     Time(config.simulation.mission_start, scale="tdb")  # raises if malformed

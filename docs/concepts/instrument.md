@@ -15,7 +15,8 @@ P_R(x) \propto \int \left[I_1 + I_2 - (I_1 - I_2)\cos\frac{2\pi\nu x}{c}\right] 
 $$
 
 with $x$ the optical path difference and $w(\nu)$ the band. A dichroic at each
-output splits the band at 300 GHz into a low-frequency and a high-frequency
+output splits the band at 200 GHz (30–2000 GHz band,
+M8 proposal) into a low-frequency and a high-frequency
 detector unit: LF-L, HF-L, LF-R, HF-R. In the spectral domain each DU measures
 the differential spectrum
 
@@ -64,3 +65,32 @@ $$
 with $q$ the Port looking at the BBIR. In each frequency bin the estimates of
 the L and R DUs covering it are averaged. B00 and B11 IFGs give no sky
 estimate.
+
+## White noise
+
+Detector noise white in the IFG becomes, after the Fourier transform, a noise
+flat in power across the synthesized bins. Following PIXIE
+{cite}`kogut2011`, an IFG of duration $t$ taken by a DU with noise-equivalent
+power NEP gives, in each bin of width $\Delta\nu$, independent Gaussian noise
+of standard deviation
+
+$$
+\delta S_\nu = \frac{\mathrm{NEP}}{\sqrt{2t}\, A\Omega\, \Delta\nu\, \alpha\, f_\mathrm{opt}},
+$$
+
+with $A\Omega$ the étendue, $\alpha$ the detector absorptivity and
+$f_\mathrm{opt}$ the optical efficiency (no apodization). The noise is added
+to the differential spectrum $d(\nu)$ of each DU, so that it propagates to
+the sky estimate; IFGs of the Recycling window get `recycling_noise_factor`
+times this level. The NEPs are the totals of the M8 proposal (Table 2.3,
+photon-noise dominated), read as one value per DU (four pixels combined); AΩ,
+$\alpha$ and $f_\mathrm{opt}$ are PIXIE placeholders.
+
+With the baseline values $\delta S_\nu \simeq 7.8\times10^{3}$ Jy/sr (LF) and
+$2.1\times10^{5}$ Jy/sr (HF) per IFG and DU, i.e. a mission monopole
+sensitivity of $\simeq 0.8$ Jy/sr below 200 GHz, in line with the
+0.64–0.8 Jy/sr requirement of the proposal.
+
+Each realization is drawn from a `numpy.random.SeedSequence` keyed by
+(master seed, component, cycle, DU), never by MPI rank (ADR 0001): a run gives
+the same noise for any number of ranks.

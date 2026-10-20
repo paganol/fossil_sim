@@ -48,6 +48,12 @@
 :members:
 ```
 
+## Noise
+
+```{automodule} fossil_sim.noise
+:members:
+```
+
 ## Interferograms
 
 ```{automodule} fossil_sim.ifg

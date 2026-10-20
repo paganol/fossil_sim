@@ -40,6 +40,10 @@ physics and the mission design.
 - Static sky with real pysm3 models: dust dominates at THz on the Galactic
   plane (optional test).
 - Ideal-FTS interferogram round trip exact; L + R constant.
+- Noise: per-IFG level equal to the PIXIE formula; realizations reproducible
+  and keyed by cycle; Recycling IFGs × `recycling_noise_factor`; (noisy −
+  noiseless) sky map normalized by the variance map has unit standard
+  deviation to 2 %.
 
 ## Cross-checks
 

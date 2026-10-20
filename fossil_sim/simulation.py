@@ -22,6 +22,7 @@ from .input_sky import (
 )
 from .instrument import detector_units, frequency_grid_ghz
 from .mapmaking import DIAGNOSTIC_OUTPUTS, HitMaps, SpectralMaps
+from .noise import du_noise_mjy_sr, sky_estimate_noise_variance
 from .operations import (
     FLAG_NAMES,
     FLAG_SAA_EXCEEDED,
@@ -95,7 +96,7 @@ def build_ifg_table(config: Config, orbit: L2Orbit, cycle_id: int) -> np.ndarray
 
 
 class SignalModel:
-    """Spectral-domain signal of each IFG (no noise yet)."""
+    """Spectral-domain signal of each IFG, optionally with white noise."""
 
     def __init__(
         self, config: Config, orbit: L2Orbit, static_sky: StaticSky | None = None
@@ -157,14 +158,42 @@ class SignalModel:
             sky += zodi
         return sky
 
+    def noise_for_cycle(
+        self, cycle_id: int, table: np.ndarray
+    ) -> dict[str, np.ndarray] | None:
+        """White noise of each DU over a whole cycle, or None if disabled."""
+        if not self.config.noise.enabled:
+            return None
+        in_recycling = table["ring_id"] == -1
+        return {
+            du.name: du_noise_mjy_sr(
+                self.config,
+                du,
+                i,
+                cycle_id,
+                in_recycling,
+                int(du.band_mask(self.freq_ghz).sum()),
+            )
+            for i, du in enumerate(self.dus)
+        }
+
     def compute(
-        self, table: np.ndarray, zodi: np.ndarray | None = None
+        self,
+        table: np.ndarray,
+        zodi: np.ndarray | None = None,
+        noise: dict[str, np.ndarray] | None = None,
     ) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray]:
-        """DU differential spectra, sky estimate and BBIR spectra for a block of IFGs."""
+        """DU differential spectra, sky estimate and BBIR spectra for a block of IFGs.
+
+        ``noise`` (per DU, same shapes as the spectra) is added to the DU
+        spectra, hence propagated to the sky estimate.
+        """
         sky = self.sky_mjy_sr(table, zodi)
         bbir = bbir_spectra_mjy_sr(self.freq_ghz, table["bbir_port_temperature_k"])
         port1, port2 = port_spectra_mjy_sr(sky, bbir, table["mode"])
         du_spectra = du_differential_spectra(self.freq_ghz, port1, port2, self.dus)
+        if noise is not None:
+            du_spectra = {name: s + noise[name] for name, s in du_spectra.items()}
         estimate = sky_estimate_mjy_sr(
             self.freq_ghz, du_spectra, self.dus, bbir, table["mode"]
         )
@@ -264,7 +293,13 @@ def run_simulation(
     model = SignalModel(config, orbit, static_sky) if spectral else None
     result = SimulationResult(
         hit_maps=HitMaps(config.maps.nsides),
-        spectral_maps=SpectralMaps(config.maps.nsides, model.freq_ghz)
+        spectral_maps=SpectralMaps(
+            config.maps.nsides,
+            model.freq_ghz,
+            sky_estimate_noise_variance(config, model.freq_ghz, model.dus)
+            if config.noise.enabled
+            else None,
+        )
         if spectral
         else None,
     )
@@ -317,10 +352,15 @@ def _process_signal(config, model, table, spectral_maps, cycle_id, output_dir) -
     mode_names = np.asarray(MODES)
     tod_blocks = []
     zodi = model.zodi_for_cycle(cycle_id, table)
+    noise = model.noise_for_cycle(cycle_id, table)
     for start in range(0, table.size, SIGNAL_BLOCK_IFGS):
-        block = table[start : start + SIGNAL_BLOCK_IFGS]
-        block_zodi = None if zodi is None else zodi[start : start + SIGNAL_BLOCK_IFGS]
-        du_spectra, estimate, _ = model.compute(block, block_zodi)
+        chunk = slice(start, start + SIGNAL_BLOCK_IFGS)
+        block = table[chunk]
+        block_zodi = None if zodi is None else zodi[chunk]
+        block_noise = (
+            None if noise is None else {name: n[chunk] for name, n in noise.items()}
+        )
+        du_spectra, estimate, _ = model.compute(block, block_zodi, block_noise)
         if config.output.save_tod:
             tod_blocks.append(du_spectra)
         valid = block["flags"] == 0
