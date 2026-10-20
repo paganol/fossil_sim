@@ -102,7 +102,7 @@ systematics): each output sees
 
 $P(x) = \\sum_\\nu w(\\nu)\\,[I_1 + I_2 + s\\,(I_1 - I_2)\\cos(2\\pi\\nu x/c)]\\,\\Delta\\nu$,\n\nwith $x$ the optical path difference ($x = 2\\delta$ for mirror position $\\delta$ in the\nStep2 formula; the factor is a TBD config parameter),
 $s = +1$ for the L output and $-1$ for the R output, and $w(\\nu)$ the
-band of the detector unit (LF below 300 GHz, HF above). OPD range and
+band of the detector unit (LF below 200 GHz, HF above). OPD range and
 sampling are TBD placeholders from `configs/baseline.toml`."""),
     code("""from pathlib import Path
 
@@ -170,8 +170,8 @@ relativistic corrections, μ, CIB, extragalactic CO), observed with the exact
 Boost from the solar plus orbital velocity (ADR 0002), and of the Static sky
 (pysm3 foregrounds and CMB anisotropies, with the orbital Doppler term,
 ADR 0003), plus the zodiacal light seen from the spacecraft (zodipy, planck18).
-No noise yet. The sky estimate assumes perfect
-calibration. The first run builds the Static-sky cache (about 30 s)."""),
+White noise is added per IFG, bin and DU (PIXIE
+formula, M8 NEPs). The sky estimate assumes perfect calibration. The first run builds the Static-sky cache (about 30 s)."""),
     code("""from dataclasses import replace
 from pathlib import Path
 
@@ -285,6 +285,27 @@ fig = plt.figure(figsize=(12, 3.5))
 for k, mode in enumerate(("B10", "B01")):
     hp.mollview(raw[0, k, i150], fig=fig, sub=(1, 2, k + 1), title=f"L output, {mode}, {f:.0f} GHz",
                 unit="MJy/sr", min=-2, max=2)"""),
+    md("""## White noise
+
+Noise per IFG and DU, flat in each band (PIXIE formula with the M8 NEPs), the
+corresponding mission monopole sensitivity, and the noise per pixel of the
+10-day map (square root of the variance map)."""),
+    code("""from fossil_sim.instrument import detector_units
+from fossil_sim.noise import noise_sigma_mjy_sr
+
+valid_science = config.simulation.duration_days * 86400 / config.timeline.ifg_duration_s * (69 / 87)
+sigma_ifg = np.sqrt(maps.noise_variance_per_ifg)
+fig, ax = plt.subplots(figsize=(8, 4))
+for du in detector_units(config.instrument)[:2]:
+    band = du.band_mask(maps.freq_ghz)
+    ax.plot(maps.freq_ghz[band], np.full(band.sum(), 1e6 * noise_sigma_mjy_sr(config, du)), label=f"{du.name}, per IFG")
+ax.plot(maps.freq_ghz, 1e6 * sigma_ifg / np.sqrt(valid_science), "k", label="sky monopole, full mission")
+ax.set(xscale="log", yscale="log", xlabel="ν [GHz]", ylabel="δS [Jy/sr]")
+ax.legend()
+fig.tight_layout()
+noise_jy_sr = np.full(seen.size, hp.UNSEEN)
+noise_jy_sr[seen] = 1e6 * np.sqrt(maps.sky_variance_map(64)[i150, seen])
+hp.mollview(noise_jy_sr, title=f"Noise per pixel, {f:.0f} GHz, 10 days", unit="Jy/sr")"""),
 ]
 
 for name, cells in (
