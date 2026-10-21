@@ -6,10 +6,11 @@ spectral distortions with an absolute Fourier Transform Spectrometer.
 ```sh
 uv sync --extra dev
 uv run pytest                                   # unit tests + doctests
-uv run pytest --nbmake notebooks                # example notebooks
+uv run python scripts/build_notebooks.py        # execute the example notebooks
 uv run --with litebird_sim --with "git+https://github.com/paganol/BISOU-sky" pytest -m heavy  # oracles
 uv run --with mpi4py mpirun -n 3 python scripts/mpi_check.py
 uv run python examples/hitmaps.py               # hit maps + report in output/hitmaps
+uv run python examples/spectral_maps.py         # 6-month spectral maps + report in output/spectral_maps
 ```
 
 Notebooks: [scanning](notebooks/fossil_sim_scanning.ipynb),
