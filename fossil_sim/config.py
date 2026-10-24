@@ -180,6 +180,7 @@ class NoiseConfig:
     etendue_cm2_sr: float
     absorptivity: float
     optical_efficiency: float
+    modulation_efficiency: float
     recycling_noise_factor: float
 
 
@@ -355,9 +356,12 @@ def validate(config: Config) -> None:
             nc.etendue_cm2_sr,
             nc.absorptivity,
             nc.optical_efficiency,
+            nc.modulation_efficiency,
             nc.recycling_noise_factor,
         )
         <= 0
     ):
         raise ValueError("noise: all parameters must be > 0")
+    if nc.modulation_efficiency > 1:
+        raise ValueError("noise.modulation_efficiency must be in (0, 1]")
     Time(config.simulation.mission_start, scale="tdb")  # raises if malformed

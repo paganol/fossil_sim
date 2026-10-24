@@ -51,6 +51,7 @@ def test_hash_is_stable_and_content_based():
         ("instrument", "dichroic_split_ghz", 2500.0),
         ("maps", "nsides", [64, 100]),
         ("ifg", "max_opd_m", 0.005),
+        ("noise", "modulation_efficiency", 1.5),
     ],
 )
 def test_invalid_values_are_rejected(section, key, value):

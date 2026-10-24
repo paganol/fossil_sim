@@ -3,9 +3,10 @@
 For a DU with output sign s and band mask w(ν), the detected signal at
 optical path difference x is
 
-    P(x) = Σ_ν w(ν) [I₁(ν) + I₂(ν) + s (I₁(ν) − I₂(ν)) cos(2π ν x / c)] Δν,
+    P(x) = m Σ_ν w(ν) [I₁(ν) + I₂(ν) + s (I₁(ν) − I₂(ν)) cos(2π ν x / c)] Δν,
 
-in MJy/sr × GHz (optical efficiency and étendue not included). The mirror
+in MJy/sr × GHz (optical efficiency and étendue not included), with m the
+``modulation_efficiency`` (provisional, see ``fossil_sim.noise``). The mirror
 position is δ = x / ``opd_per_mirror_position``; the Step2 formula
 cos(4π ν δ / c) corresponds to a factor 2 (TBD with the FTS team).
 """
@@ -44,6 +45,7 @@ def interferogram(
     port2_mjy_sr: np.ndarray,
     du: DetectorUnit,
     opd_m: np.ndarray,
+    modulation_efficiency: float = 1.0,
 ) -> np.ndarray:
     """Interferogram of one DU, in MJy/sr × GHz, for the spectra entering Ports 1 and 2."""
     mask = du.band_mask(freq_ghz)
@@ -52,7 +54,7 @@ def interferogram(
     difference = np.where(mask, du.output_sign * (port1_mjy_sr - port2_mjy_sr), 0.0)
     out = np.empty(opd_m.size)
     _ifg_kernel(freq_ghz, total, difference, opd_m, freq_step_ghz, out)
-    return out
+    return modulation_efficiency * out
 
 
 def modulation_matrix(freq_ghz: np.ndarray, opd_m: np.ndarray) -> np.ndarray:
@@ -65,6 +67,7 @@ def differential_spectrum(
     ifg: np.ndarray,
     du: DetectorUnit,
     opd_m: np.ndarray,
+    modulation_efficiency: float = 1.0,
 ) -> np.ndarray:
     """Recover s (I₁ − I₂) in the DU band from an interferogram, by least squares.
 
@@ -78,7 +81,8 @@ def differential_spectrum(
             modulation_matrix(freq_ghz[mask], opd_m),
         ]
     )
-    solution = np.linalg.lstsq(design, ifg / freq_step_ghz, rcond=None)[0]
+    scale = freq_step_ghz * modulation_efficiency
+    solution = np.linalg.lstsq(design, ifg / scale, rcond=None)[0]
     result = np.full(freq_ghz.size, np.nan)
     result[mask] = solution[1:]
     return result

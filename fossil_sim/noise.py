@@ -1,12 +1,25 @@
 """Spectral-domain white noise, per IFG, frequency bin and DU.
 
 Detector noise white in the IFG maps to a noise flat in power across the
-synthesized bins. Following PIXIE (Kogut et al. 2011, §2), an IFG of duration
-t with NEP gives per bin
+synthesized bins. An IFG of duration t, N samples of δt = t / N with noise
+NEP / √(2 δt) each, and a DU power
 
-    δS_ν = NEP / (√(2 t) · AΩ · Δν · α · f_opt)
+    P(x) = AΩ α f_opt m Σ_ν [(I₁ + I₂) + s (I₁ − I₂) cos(2π ν x / c)] Δν
 
-(no apodization). IFGs in the Recycling window get ``recycling_noise_factor``
+(``fossil_sim.ifg``) give, for the least-squares amplitude of each cosine
+(variance 2 σ² / N = NEP² / t), per bin
+
+    δS_ν = NEP / (√t · AΩ · Δν · α · f_opt · m)
+
+(no apodization; checked by Monte Carlo in ``test/test_noise.py``). PIXIE
+(Kogut et al. 2011; arXiv:2405.20403v2, eq. 4–6) writes √(2t): its δP_ν is the complex
+Fourier coefficient, a/2 for a cosine of amplitude a.
+
+``modulation_efficiency`` (m) is a provisional knob for a convention still to
+be fixed with the instrument team: 1 when one DU sees the full difference,
+1/4 for a single-polarization bolometer of a Martin-Puplett FTS (PIXIE 2025,
+eq. 1), 1/2 for a DU summing two. Once fixed, fold it into the signal model
+and remove the key. IFGs in the Recycling window get ``recycling_noise_factor``
 times this level. Realizations are keyed by (component, cycle, DU), never by
 MPI rank (ADR 0001).
 """
@@ -28,13 +41,14 @@ def noise_sigma_mjy_sr(config: Config, du: DetectorUnit) -> float:
     nc = config.noise
     nep = nc.nep_lf_w_sqrt_hz if du.name.startswith("LF") else nc.nep_hf_w_sqrt_hz
     sigma_si = nep / (
-        np.sqrt(2.0 * config.timeline.ifg_duration_s)
+        np.sqrt(config.timeline.ifg_duration_s)
         * nc.etendue_cm2_sr
         * 1e-4
         * config.instrument.freq_step_ghz
         * 1e9
         * nc.absorptivity
         * nc.optical_efficiency
+        * nc.modulation_efficiency
     )
     return sigma_si * SI_TO_MJY_SR
 
