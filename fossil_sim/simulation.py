@@ -281,6 +281,8 @@ def run_simulation(
     """
     if config.output.save_tod and (output_dir is None or not spectral):
         raise ValueError("save_tod needs spectral=True and an output_dir")
+    if num_of_cycles is not None and not 1 <= num_of_cycles <= num_cycles(config):
+        raise ValueError(f"num_of_cycles must be in [1, {num_cycles(config)}]")
     total_cycles = num_cycles(config) if num_of_cycles is None else num_of_cycles
     rank, size = (0, 1) if comm is None else (comm.rank, comm.size)
     orbit = L2Orbit(
@@ -351,6 +353,9 @@ def _process_signal(config, model, table, spectral_maps, cycle_id, output_dir) -
     """Signal and spectral maps of one cycle, in blocks of IFGs."""
     mode_names = np.asarray(MODES)
     tod_blocks = []
+    # ponytail: zodi and noise span the whole cycle (~60 MB per DU at baseline),
+    # so SIGNAL_BLOCK_IFGS bounds only the sky/BBIR arrays; draw them per block
+    # if the frequency grid gets much finer
     zodi = model.zodi_for_cycle(cycle_id, table)
     noise = model.noise_for_cycle(cycle_id, table)
     for start in range(0, table.size, SIGNAL_BLOCK_IFGS):
