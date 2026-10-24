@@ -13,8 +13,10 @@ import warnings
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
+import healpy as hp
 from astropy.time import Time
 
+from .constants import C_LIGHT_M_S
 from .version import __version__
 
 MODES = ("B00", "B01", "B10", "B11")
@@ -215,14 +217,20 @@ class Config:
         return hashlib.sha256(text.encode()).hexdigest()
 
     def provenance(self) -> dict:
-        """Metadata identifying a run: config hash, code version, git commit."""
+        """Metadata identifying a run: config hash, code version, git commit.
+
+        ``git_sha`` ends with ``-dirty`` when the checkout has uncommitted changes.
+        """
+        repo = Path(__file__).parents[1]
         try:
+            if not (repo / ".git").exists():  # installed copy: no checkout to ask
+                raise OSError
             git_sha = subprocess.run(
-                ["git", "rev-parse", "HEAD"],
+                ["git", "describe", "--always", "--dirty", "--abbrev=40"],
                 capture_output=True,
                 text=True,
                 check=True,
-                cwd=Path(__file__).parent,
+                cwd=repo,
             ).stdout.strip()
         except (OSError, subprocess.CalledProcessError):
             git_sha = "unknown"
@@ -267,6 +275,8 @@ def validate(config: Config) -> None:
             raise ValueError(f"timeline.{name} must be >= 1")
     if tl.recycling_scans < 0 or tl.ifg_duration_s <= 0:
         raise ValueError("timeline: recycling_scans >= 0 and ifg_duration_s > 0")
+    if config.simulation.duration_days <= 0:
+        raise ValueError("simulation.duration_days must be > 0")
     if sc.ring_stepping not in RING_STEPPING_RULES:
         raise ValueError(f"scanning.ring_stepping must be one of {RING_STEPPING_RULES}")
     if sc.ring_stepping != "fixed":
@@ -288,8 +298,10 @@ def validate(config: Config) -> None:
     bad_modes = set(ops.ring_mode_pattern) | {ops.recycling_mode}
     if not ops.ring_mode_pattern or not bad_modes <= set(MODES):
         raise ValueError(f"Modes must be in {MODES}, got {sorted(bad_modes)}")
-    if ops.mode_switch_dead_ifgs < 0:
-        raise ValueError("operations.mode_switch_dead_ifgs must be >= 0")
+    if not 0 <= ops.mode_switch_dead_ifgs <= tl.ifgs_per_scan:
+        raise ValueError(
+            "operations.mode_switch_dead_ifgs must be in [0, ifgs_per_scan]"
+        )
     if ops.recycling_data not in ("flagged", "off"):
         raise ValueError("operations.recycling_data must be 'flagged' or 'off'")
     if config.ifg.opd_per_mirror_position <= 0 or config.ifg.max_opd_m <= 0:
@@ -306,6 +318,23 @@ def validate(config: Config) -> None:
         raise ValueError("zodi: gauss_quad_degree and nprocesses must be >= 1")
     if not bbir.setpoints_k or len(bbir.port_offsets_k) != 2:
         raise ValueError("bbir: setpoints_k non-empty, port_offsets_k of length 2")
+    if bbir.hf_cavity_k != 0:
+        raise ValueError("bbir.hf_cavity_k: the HF cavity is not modelled yet, use 0")
+    inst = config.instrument
+    if inst.freq_step_ghz <= 0 or inst.freq_min_ghz >= inst.freq_max_ghz:
+        raise ValueError(
+            "instrument: freq_step_ghz > 0 and freq_min_ghz < freq_max_ghz"
+        )
+    if inst.freq_min_ghz < inst.band_min_ghz or inst.freq_max_ghz > inst.band_max_ghz:
+        raise ValueError("instrument: the frequency grid must lie inside the band")
+    if not inst.band_min_ghz < inst.dichroic_split_ghz < inst.band_max_ghz:
+        raise ValueError("instrument: dichroic_split_ghz must lie inside the band")
+    for nside in config.maps.nsides:
+        if not hp.isnsideok(nside, nest=True):  # powers of 2 only
+            raise ValueError(f"maps.nsides: {nside} is not a power of 2")
+    # spectral resolution c / (2 x_max) must resolve the grid step
+    if config.ifg.max_opd_m * inst.freq_step_ghz * 1e9 < 0.5 * C_LIGHT_M_S * (1 - 1e-9):
+        raise ValueError("ifg.max_opd_m too short for instrument.freq_step_ghz")
     nc = config.noise
     if (
         min(

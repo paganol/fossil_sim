@@ -50,6 +50,8 @@ def du_noise_mjy_sr(
     """Noise realization of one DU over a whole Cooler cycle, (n_ifg, num_bins).
 
     ``in_recycling`` marks the IFGs of the cycle in the Recycling window.
+    The realization depends on the number of IFGs, so ``recycling_data =
+    "off"`` and ``"flagged"`` give different noise on the same IFG.
     """
     seed = np.random.SeedSequence(
         [config.simulation.master_seed, NOISE_COMPONENT_ID, cycle_id, du_index]

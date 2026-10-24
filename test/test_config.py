@@ -40,6 +40,14 @@ def test_hash_is_stable_and_content_based():
         ("bbir", "port_offsets_k", [0.0]),
         ("timeline", "scans_per_ring", 0),
         ("simulation", "unknown_key_s", 1.0),
+        ("simulation", "duration_days", 0.0),
+        ("operations", "mode_switch_dead_ifgs", 721),
+        ("bbir", "hf_cavity_k", 20.0),
+        ("instrument", "freq_min_ghz", 15.0),  # grid outside the band
+        ("instrument", "freq_step_ghz", 0.0),
+        ("instrument", "dichroic_split_ghz", 2500.0),
+        ("maps", "nsides", [64, 100]),
+        ("ifg", "max_opd_m", 0.005),
     ],
 )
 def test_invalid_values_are_rejected(section, key, value):
