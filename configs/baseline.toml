@@ -93,13 +93,16 @@ apply_beam_to_dipole = true               # dipole term × b₁ = exp(−σ²) o
 
 [static_sky]
 # Static sky (CONTEXT.md): pysm3 anisotropies in the barycentric frame
-# (ADR 0003), beam-smoothed alm in J2000 ecliptic, cached on disk.
-# Models dip*/co* are forbidden; extragalactic ones (cib*, tsz*, ksz*, rg*)
+# (Galactic) or CMB frame (c*, extragalactic) (ADR 0003), beam-smoothed alm in
+# J2000 ecliptic, cached on disk.
+# Models dip*/co* are forbidden; cosmological ones (c*, cib*, tsz*, ksz*, rg*)
 # have their monopole removed (ADR 0002). An empty list disables it.
 models = ["c1", "d2", "s1", "a1", "f1"]   # bisou_sky defaults
 nside = 128                               # maps; pysm3 evaluated at 2 × nside
 lmax = 383                                # 3 × nside − 1; beam b_ℓ(383) ≈ 3e-5
-orbital_doppler = true                    # first-order Doppler from the orbital velocity
+doppler = true                            # first-order Doppler (ADR 0003): orbital velocity for
+                                          # Galactic models, solar + orbital for CMB anisotropies
+                                          # and extragalactic models; slope dI/dlnν from pysm3
 cache_dir = "cache/static_sky"            # relative to the working directory
 sampling = "alm"                          # "alm" (ducc0, exact) | "nearest" (pixel)
 

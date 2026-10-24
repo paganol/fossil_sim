@@ -35,7 +35,9 @@ physics and the mission design.
   monopole removed, Galactic → ecliptic rotation and beam $b_1$ exact to
   $10^{-6}$; cache reused and keyed by content; nearest-pixel sampling
   consistent with the exact alm sampling; first-order Doppler
-  $(3 - \alpha)\,\beta\cdot\hat{\mathbf n}\,I$ for power laws.
+  $K = (3 - \alpha)\,I$ for power laws on the baseline 15 GHz grid from
+  30 GHz, edges included, to $3\times10^{-4}$; orbital velocity applied to the
+  Galactic part, solar + orbital to the cosmological part.
 - Zodiacal light: Ring-by-Ring interpolation equal to the direct zodipy
   evaluation to $2\times10^{-5}$ (mid-Ring and Recycling IFGs); brighter on
   the ecliptic than at the pole, rising with frequency.

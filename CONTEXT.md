@@ -81,7 +81,7 @@ A sky component isotropic in the CMB rest frame (CMB blackbody, y, μ, CIB monop
 _Avoid_: monopole (the observed signal also has a dipole)
 
 **Static sky**:
-The time-independent anisotropic sky (Galactic foregrounds, CMB anisotropies), defined in the barycentric frame; extragalactic components carry no monopole.
+The time-independent anisotropic sky: Galactic foregrounds, defined in the barycentric frame, and CMB anisotropies and extragalactic components, defined in the CMB frame and without monopole.
 _Avoid_: sky cube, sky map
 
 **Boost**:

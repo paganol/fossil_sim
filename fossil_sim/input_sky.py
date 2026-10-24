@@ -12,8 +12,10 @@ v0.1.3: zodiacal light from zodipy, seen from the spacecraft position.
 v0.1.2: the Static sky, following the design of litebird_sim's
 ``SkyGenerator``: pysm3 maps per frequency -> alm, Gaussian beam, rotation to
 the J2000 ecliptic, cached on disk, sampled per IFG with
-``ducc0.sht.synthesis_general``. It is defined in the barycentric frame and
-receives the first-order orbital Doppler term (ADR 0003).
+``ducc0.sht.synthesis_general``. Galactic models are defined in the
+barycentric frame and receive the first-order orbital Doppler term; CMB
+anisotropies and extragalactic models are defined in the CMB rest frame and
+receive the solar + orbital one (ADR 0003).
 """
 
 import hashlib
@@ -131,13 +133,26 @@ def boosted_isotropic_background_mjy_sr(
 SYNTHESIS_EPSILON = 1e-9
 # ponytail: all cores for ducc0; set explicitly if several MPI ranks share a node
 DUCC0_NTHREADS = 0
+# Half step in ln ν of the central difference giving dI/d ln ν from pysm3:
+# for I ∝ ν^α the slope is off by α³ε²/6 · I (1.3e-4 I for α = 2)
+DOPPLER_LOG_STEP = 1e-2
 
-# (freq_ghz) -> (Galactic map, extragalactic map), MJy/sr, Galactic coordinates
+# (freq_ghz) -> (barycentric map, cosmological map), MJy/sr, Galactic coordinates
 EmissionFunction = Callable[[float], tuple[np.ndarray, np.ndarray]]
 
 
+def is_cosmological_model(model: str) -> bool:
+    """CMB anisotropies (``c1``…``c7``) and extragalactic models: CMB rest frame.
+
+    >>> [is_cosmological_model(m) for m in ("c1", "cib1", "tsz1", "d2", "s1")]
+    [True, True, True, False, False]
+    """
+    cmb = model[0] == "c" and model[1:].isdigit()
+    return cmb or model.startswith(EXTRAGALACTIC_STATIC_MODELS)
+
+
 def pysm3_emission(models: tuple[str, ...], nside: int) -> EmissionFunction:
-    """pysm3 total intensity of the Galactic and of the extragalactic models."""
+    """pysm3 total intensity of the barycentric (Galactic) and cosmological models."""
     import pysm3
     import pysm3.units as pysm_units
 
@@ -146,17 +161,15 @@ def pysm3_emission(models: tuple[str, ...], nside: int) -> EmissionFunction:
             return None
         return pysm3.Sky(nside=nside, preset_strings=list(names), output_unit="MJy/sr")
 
-    galactic = sky([m for m in models if not m.startswith(EXTRAGALACTIC_STATIC_MODELS)])
-    extragalactic = sky(
-        [m for m in models if m.startswith(EXTRAGALACTIC_STATIC_MODELS)]
-    )
+    barycentric = sky([m for m in models if not is_cosmological_model(m)])
+    cosmological = sky([m for m in models if is_cosmological_model(m)])
     zero = np.zeros(hp.nside2npix(nside))
 
     def emission(freq_ghz: float) -> tuple[np.ndarray, np.ndarray]:
         freq = freq_ghz * pysm_units.GHz
         return tuple(
             zero if s is None else np.asarray(s.get_emission(freq)[0].value)
-            for s in (galactic, extragalactic)
+            for s in (barycentric, cosmological)
         )
 
     return emission
@@ -165,16 +178,17 @@ def pysm3_emission(models: tuple[str, ...], nside: int) -> EmissionFunction:
 def static_sky_cache_key(
     config: StaticSkyConfig, freq_ghz: np.ndarray, fwhm_deg: float
 ) -> str:
-    """Hash of everything that determines the Static-sky cube."""
+    """Hash of everything that determines the Static-sky cubes."""
     import pysm3
 
     content = {
-        "format": 1,
+        "format": 2,
         "models": list(config.models),
         "nside_eval": 2 * config.nside,
         "lmax": config.lmax,
         "fwhm_deg": fwhm_deg,
         "freq_ghz": [float(f) for f in freq_ghz],
+        "doppler_log_step": DOPPLER_LOG_STEP if config.doppler else None,
         "pysm3": pysm3.__version__,
     }
     return hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()
@@ -185,32 +199,58 @@ def build_static_sky_alm(
     freq_ghz: np.ndarray,
     fwhm_deg: float,
     emission: EmissionFunction | None = None,
-) -> np.ndarray:
-    """Static-sky alm cube, shape (n_freq, 1, n_alm), MJy/sr, J2000 ecliptic.
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """Static-sky alm cubes, MJy/sr, J2000 ecliptic.
 
-    For each frequency: map -> alm (3 iterations), monopole of the
-    extragalactic part removed, Gaussian beam, rotation Galactic -> ecliptic.
+    For each frequency: maps -> alm (3 iterations), monopole of the
+    cosmological part removed, Gaussian beam, rotation Galactic -> ecliptic.
+
+    Returns
+    -------
+    alm : ndarray, shape (n_freq, 1, n_alm)
+        Total intensity I.
+    doppler_alm : ndarray, shape (2, n_freq, 1, n_alm), or None
+        K = 3 I − dI/d ln ν of the barycentric and of the cosmological part
+        (ADR 0003), with dI/d ln ν from pysm3 at ν e^{±ε}; None when
+        ``config.doppler`` is false.
     """
     if emission is None:
         emission = pysm3_emission(config.models, 2 * config.nside)
     lmax = config.lmax
     beam = hp.gauss_beam(np.deg2rad(fwhm_deg), lmax=lmax)
     rotator = hp.Rotator(coord=["G", "E"])
-    cube = np.empty((freq_ghz.size, 1, hp.Alm.getsize(lmax)), dtype=np.complex128)
+
+    def to_alm(barycentric_map, cosmological_map):
+        alm = hp.map2alm(barycentric_map, lmax=lmax, iter=3)
+        cosmological = hp.map2alm(cosmological_map, lmax=lmax, iter=3)
+        cosmological[0] = 0.0  # a_00: the monopole belongs to the Isotropic backgrounds
+        return [
+            rotator.rotate_alm(hp.almxfl(a, beam), lmax=lmax)
+            for a in (alm, cosmological)
+        ]
+
+    n_alm = hp.Alm.getsize(lmax)
+    cube = np.empty((freq_ghz.size, 1, n_alm), dtype=np.complex128)
+    doppler = (
+        np.empty((2, freq_ghz.size, 1, n_alm), dtype=np.complex128)
+        if config.doppler
+        else None
+    )
+    eps = DOPPLER_LOG_STEP
     for i, freq in enumerate(freq_ghz):
-        galactic_map, extragalactic_map = emission(float(freq))
-        alm = hp.map2alm(galactic_map, lmax=lmax, iter=3)
-        extragalactic_alm = hp.map2alm(extragalactic_map, lmax=lmax, iter=3)
-        extragalactic_alm[0] = (
-            0.0  # a_00: the monopole belongs to the Isotropic backgrounds
-        )
-        alm = hp.almxfl(alm + extragalactic_alm, beam)
-        cube[i, 0] = rotator.rotate_alm(alm, lmax=lmax)
-    return cube
+        maps = emission(float(freq))
+        barycentric, cosmological = to_alm(*maps)
+        cube[i, 0] = barycentric + cosmological
+        if doppler is not None:
+            up = emission(float(freq) * np.exp(eps))
+            down = emission(float(freq) * np.exp(-eps))
+            k_maps = [3 * m - (u - d) / (2 * eps) for m, u, d in zip(maps, up, down)]
+            doppler[:, i, 0] = to_alm(*k_maps)
+    return cube, doppler
 
 
 class StaticSky:
-    """Static sky cube, loaded from (or written to) the cache, sampled per direction.
+    """Static sky cubes, loaded from (or written to) the cache, sampled per direction.
 
     Parameters
     ----------
@@ -220,7 +260,8 @@ class StaticSky:
     fwhm_deg : float
         Gaussian beam FWHM.
     emission : callable, optional
-        Map generator (default: pysm3 with ``config.models``).
+        Map generator, (barycentric, cosmological) per frequency (default:
+        pysm3 with ``config.models``).
     """
 
     def __init__(
@@ -239,34 +280,45 @@ class StaticSky:
                 if f.attrs["cache_key"] != key:
                     raise RuntimeError(f"Cache key mismatch in {self.path}")
                 self.alm = f["alm"][()]
+                self.doppler_alm = f["doppler_alm"][()] if "doppler_alm" in f else None
         else:
-            self.alm = build_static_sky_alm(config, self.freq_ghz, fwhm_deg, emission)
+            self.alm, self.doppler_alm = build_static_sky_alm(
+                config, self.freq_ghz, fwhm_deg, emission
+            )
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(".tmp")
             with h5py.File(tmp, "w") as f:
                 f.create_dataset("alm", data=self.alm)
+                if self.doppler_alm is not None:
+                    f.create_dataset("doppler_alm", data=self.doppler_alm)
                 f.create_dataset("freq_ghz", data=self.freq_ghz)
                 f.attrs["cache_key"] = key
                 f.attrs["unit"] = "MJy/sr"
                 f.attrs["coord"] = "J2000 ecliptic"
             tmp.replace(self.path)
-        self.maps = None
+        self.maps = self.doppler_maps = None
         if config.sampling == "nearest":
-            self.maps = np.stack(
-                [hp.alm2map(a[0], config.nside, lmax=config.lmax) for a in self.alm]
-            )
+            self.maps = self._alm2map(self.alm)
+            if self.doppler_alm is not None:
+                self.doppler_maps = np.stack(
+                    [self._alm2map(c) for c in self.doppler_alm]
+                )
 
-    def sample(self, direction: np.ndarray) -> np.ndarray:
-        """Static sky along each direction, shape (n, n_freq), MJy/sr."""
+    def _alm2map(self, cube: np.ndarray) -> np.ndarray:
+        nside, lmax = self.config.nside, self.config.lmax
+        return np.stack([hp.alm2map(a[0], nside, lmax=lmax) for a in cube])
+
+    def _synthesize(self, cube, maps, direction: np.ndarray) -> np.ndarray:
+        """One cube along each direction, shape (n, n_freq)."""
         theta, phi = hp.vec2ang(direction)
-        if self.maps is not None:
+        if maps is not None:
             pixels = hp.ang2pix(self.config.nside, theta, phi)
-            return self.maps[:, pixels].T.copy()
+            return maps[:, pixels].T.copy()
         loc = np.column_stack([theta, phi])
         result = np.empty((direction.shape[0], self.freq_ghz.size))
         for i in range(self.freq_ghz.size):
             result[:, i] = ducc0.sht.synthesis_general(
-                alm=self.alm[i],
+                alm=cube[i],
                 spin=0,
                 lmax=self.config.lmax,
                 loc=loc,
@@ -275,17 +327,32 @@ class StaticSky:
             )[0]
         return result
 
+    def sample(self, direction: np.ndarray) -> np.ndarray:
+        """Static sky along each direction, shape (n, n_freq), MJy/sr."""
+        return self._synthesize(self.alm, self.maps, direction)
 
-def orbital_doppler_mjy_sr(
-    freq_ghz: np.ndarray,
-    intensity_mjy_sr: np.ndarray,
-    direction: np.ndarray,
-    orbital_velocity_km_s: np.ndarray,
+    def sample_doppler(self, direction: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """K = 3 I − dI/d ln ν of the barycentric and cosmological parts, each (n, n_freq)."""
+        if self.doppler_alm is None:
+            raise ValueError("Static sky built with doppler = false")
+        maps = [None, None] if self.doppler_maps is None else self.doppler_maps
+        return tuple(
+            self._synthesize(cube, m, direction)
+            for cube, m in zip(self.doppler_alm, maps)
+        )
+
+
+def static_doppler_mjy_sr(
+    k_mjy_sr: np.ndarray, direction: np.ndarray, velocity_km_s: np.ndarray
 ) -> np.ndarray:
-    """First-order Doppler term of the Static sky, ΔI = (β·n̂)(3 I − dI/d ln ν) (ADR 0003)."""
-    beta_dot_n = np.sum(orbital_velocity_km_s * direction, axis=1) / C_LIGHT_KM_S
-    d_intensity = np.gradient(intensity_mjy_sr, np.log(freq_ghz), axis=1)
-    return beta_dot_n[:, None] * (3 * intensity_mjy_sr - d_intensity)
+    """First-order Doppler of a Static-sky part, ΔI = (β·n̂) K (ADR 0003).
+
+    ``k_mjy_sr`` is K = 3 I − dI/d ln ν of that part (:meth:`StaticSky.sample_doppler`),
+    ``velocity_km_s`` the observer velocity in its frame, (n, 3) or (3,).
+    """
+    velocity_km_s = np.broadcast_to(velocity_km_s, direction.shape)
+    beta_dot_n = np.sum(velocity_km_s * direction, axis=1) / C_LIGHT_KM_S
+    return beta_dot_n[:, None] * k_mjy_sr
 
 
 class ZodiacalLight:

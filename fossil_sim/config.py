@@ -146,7 +146,7 @@ class StaticSkyConfig:
     models: tuple[str, ...]
     nside: int
     lmax: int
-    orbital_doppler: bool
+    doppler: bool
     cache_dir: str
     sampling: str
 
