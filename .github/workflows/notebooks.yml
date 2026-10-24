@@ -30,6 +30,10 @@ jobs:
             notebooks/cache
           key: static-sky-${{ hashFiles('configs/baseline.toml', 'uv.lock') }}
           restore-keys: static-sky-
+      # Build the Static-sky cube outside the notebooks (no 600 s cell timeout);
+      # from notebooks/, where the notebooks resolve cache_dir
+      - run: uv run python ../scripts/build_static_sky.py
+        working-directory: notebooks
       - run: uv run python scripts/build_notebooks.py
       - run: uv run ruff check --fix notebooks && uv run ruff format notebooks
       - name: Commit the executed notebooks
