@@ -45,6 +45,19 @@ physics and the mission design.
   noiseless) sky map normalized by the variance map has unit standard
   deviation to 2 %.
 
+## Spectral maps over six months
+
+`examples/spectral_maps.py` with the baseline (127 Cooler cycles, 184 days,
+Static sky `c1 d2 s1 a1 f1` + zodi + noise; about 25 min per run, serial):
+
+- 7.96 M IFGs, 6.30 M valid (20.80 % lost); maximum Solar Aspect Angle 0.35°.
+- Sky coverage 100 % at nside 64 (median 92 hits per pixel), 86.5 % at nside
+  128 (median 23): the Ring step (~0.48°) is close to the nside 128 pixel size,
+  so full coverage at nside 128 needs the whole year.
+- (noisy − noiseless) / √variance has standard deviation between 0.991 and
+  1.005 in every frequency bin at nside 64 (0.995–1.004 at nside 128): the
+  noise integrates down as 1/√hits over the mission.
+
 ## Cross-checks
 
 - Pointing equal to litebird_sim's quaternion composition to better than

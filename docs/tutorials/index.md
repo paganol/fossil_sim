@@ -20,3 +20,14 @@ FITS hit maps (total and per Mode), figures and a markdown report:
 ```sh
 uv run python examples/hitmaps.py [config.toml] [output_dir]
 ```
+
+## Spectral maps and report
+
+`examples/spectral_maps.py` runs the first months of the mission (default
+183 days) twice with the same seed, with and without noise, and writes the
+FITS spectral maps (sky, variance, diagnostics), figures and a markdown report
+that checks the noise maps against the variance maps:
+
+```sh
+uv run python examples/spectral_maps.py [config.toml] [output_dir] [days]
+```
