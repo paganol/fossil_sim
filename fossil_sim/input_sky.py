@@ -107,6 +107,8 @@ def boosted_isotropic_background_mjy_sr(
     sky : SkyConfig
     beam_factor : float
         Factor applied to the anisotropic part (b₁ of the beam, 1 = no beam).
+        It multiplies all of ``observed − rest``, β² terms included (quadrupole
+        should take b₂, the boost monopole no factor): error ~1e-10 relative.
 
     Returns
     -------
