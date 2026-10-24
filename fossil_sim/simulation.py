@@ -17,8 +17,8 @@ from .input_sky import (
     ZodiacalLight,
     boosted_isotropic_background_mjy_sr,
     dipole_beam_factor,
-    orbital_doppler_mjy_sr,
     solar_velocity_km_s,
+    static_doppler_mjy_sr,
 )
 from .instrument import detector_units, frequency_grid_ghz
 from .mapmaking import DIAGNOSTIC_OUTPUTS, HitMaps, SpectralMaps
@@ -135,7 +135,7 @@ class SignalModel:
     ) -> np.ndarray:
         """Total sky along the boresight, (n, n_freq).
 
-        Isotropic backgrounds (boosted) + Static sky (with orbital Doppler) +
+        Isotropic backgrounds (boosted) + Static sky (with first-order Doppler) +
         zodiacal light (precomputed for the block, see :meth:`zodi_for_cycle`).
         """
         direction = table["boresight"]
@@ -148,12 +148,16 @@ class SignalModel:
             self.beam_factor,
         )
         if self.static_sky is not None:
-            static = self.static_sky.sample(direction)
-            if self.config.static_sky.orbital_doppler:
-                static += orbital_doppler_mjy_sr(
-                    self.freq_ghz, static, direction, orbital_km_s
+            sky += self.static_sky.sample(direction)
+            if self.config.static_sky.doppler:
+                # Galactic part: barycentric frame; cosmological part: CMB frame
+                k_barycentric, k_cosmological = self.static_sky.sample_doppler(
+                    direction
                 )
-            sky += static
+                sky += static_doppler_mjy_sr(k_barycentric, direction, orbital_km_s)
+                sky += static_doppler_mjy_sr(
+                    k_cosmological, direction, self.solar_velocity_km_s + orbital_km_s
+                )
         if zodi is not None:
             sky += zodi
         return sky

@@ -228,9 +228,10 @@ fig.tight_layout()"""),
     md("""## Static sky
 
 The cached alm cube sampled on a HEALPix grid (ecliptic coordinates), and its
-orbital Doppler term: on the Galactic plane at THz frequencies it is far
-larger than the y distortion."""),
-    code("""from fossil_sim.input_sky import StaticSky, orbital_doppler_mjy_sr
+first-order Doppler term: orbital velocity on the Galactic foregrounds (on the
+plane at THz frequencies far larger than the y distortion), solar + orbital on
+the CMB anisotropies (their Doppler modulation, dominant near the CMB peak)."""),
+    code("""from fossil_sim.input_sky import StaticSky, static_doppler_mjy_sr
 from fossil_sim.instrument import frequency_grid_ghz
 
 grid_ghz = frequency_grid_ghz(config.instrument)
@@ -238,15 +239,17 @@ static = StaticSky(config.static_sky, grid_ghz, config.instrument.beam_fwhm_deg)
 nside = 64
 vectors = np.array(hp.pix2vec(nside, np.arange(hp.nside2npix(nside)))).T
 static_maps = static.sample(vectors)
-v_orbit = np.broadcast_to(orbit.position_velocity(0.0)[1][0], vectors.shape)
-doppler = orbital_doppler_mjy_sr(grid_ghz, static_maps, vectors, v_orbit)
+v_orbit = orbit.position_velocity(0.0)[1][0]
+k_galactic, k_cmb = static.sample_doppler(vectors)
+doppler = static_doppler_mjy_sr(k_galactic, vectors, v_orbit) + static_doppler_mjy_sr(
+    k_cmb, vectors, solar_velocity_km_s(sky) + v_orbit)
 fig = plt.figure(figsize=(12, 7))
 for k, freq in enumerate((150, 1005)):
     i = np.argmin(np.abs(grid_ghz - freq))
     hp.mollview(static_maps[:, i], fig=fig, sub=(2, 2, k + 1), norm="hist",
                 title=f"Static sky, {freq} GHz", unit="MJy/sr")
     hp.mollview(doppler[:, i], fig=fig, sub=(2, 2, k + 3),
-                title=f"Orbital Doppler, {freq} GHz", unit="MJy/sr")"""),
+                title=f"Doppler, {freq} GHz", unit="MJy/sr")"""),
     md("""## Zodiacal light
 
 zodipy (planck18 model) seen from the spacecraft at mission start: brightest
