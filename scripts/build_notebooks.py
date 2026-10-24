@@ -86,7 +86,7 @@ fig, ax = plt.subplots(figsize=(11, 2.8))
 ax.plot(hours, mode, drawstyle="steps-post", lw=0.5)
 ax.set_yticks(range(len(MODES)), MODES)
 ax.fill_between(hours, -0.5, 3.5, where=flags > 0, color="C3", alpha=0.3, step="post", label="flagged")
-ax.set(xlabel="hours", title="Mode sequence (B10/B01 alternate Scan by Scan; B00 in Recycling)")
+ax.set(xlabel="hours", title="Mode sequence (switch in the middle of each Ring; B00 in Recycling)")
 ax.legend(loc="upper left")
 fig.tight_layout()"""),
     md("## Hit map after 30 days"),

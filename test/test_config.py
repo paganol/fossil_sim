@@ -35,13 +35,16 @@ def test_hash_is_stable_and_content_based():
     [
         ("scanning", "precession_amplitude_deg", 9.5),  # SAA limit
         ("scanning", "ring_stepping", "continuous"),
-        ("operations", "ring_mode_pattern", ["B10", "B2"]),
+        ("operations", "mode_pattern", ["B10", "B2"]),
+        ("operations", "mode_switch_interval_s", 1441.0),  # not whole IFGs
+        ("operations", "mode_switch_interval_s", 0.0),
+        ("operations", "mode_switch_dead_time_s", -1.0),
         ("operations", "recycling_data", "degraded"),
         ("bbir", "port_offsets_k", [0.0]),
         ("timeline", "scans_per_ring", 0),
         ("simulation", "unknown_key_s", 1.0),
         ("simulation", "duration_days", 0.0),
-        ("operations", "mode_switch_dead_ifgs", 721),
+        ("operations", "mode_switch_dead_time_s", 16560.0),  # whole block
         ("bbir", "hf_cavity_k", 20.0),
         ("instrument", "freq_min_ghz", 15.0),  # grid outside the band
         ("instrument", "freq_step_ghz", 0.0),

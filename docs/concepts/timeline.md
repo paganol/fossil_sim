@@ -45,21 +45,42 @@ $c\,N_R + r$ (Ring index $-1$ during recycling).
 
 ## Modes
 
-Observing Scans follow a repeating pattern $(m_0, \dots, m_{P-1})$
-(`ring_mode_pattern`). The pattern runs over the global index of *observing*
-Scans,
+The observing time (Recycling windows excluded) is split into Mode blocks of
+duration $\tau_\mathrm{block}$ (`mode_switch_interval_s`, a multiple of
+$\Delta t$, i.e. $L = \tau_\mathrm{block} / \Delta t$ IFGs). The block clock
+stops during Recycling windows, so a block that does not end before one
+resumes after it in the same Mode. A repeating pattern
+$(m_0, \dots, m_{P-1})$ (`mode_pattern`) gives the Mode of each block:
 
 $$
-j = c\,N_S N_R + s, \qquad \mathrm{Mode} = m_{j \bmod P},
+j = \left\lfloor \frac{c\,N_S N_R N_I + k_c}{L} \right\rfloor,
+\qquad \mathrm{Mode} = m_{j \bmod P},
 $$
 
-so with the default pattern (B10, B01) the alternation is continuous across
-Rings and cycles: since $N_S$ and $N_S N_R$ are odd, consecutive Rings and
-cycles start with opposite Modes. Recycling Scans take `recycling_mode`.
+with $k_c$ the IFG index in the cycle. Recycling IFGs take `recycling_mode`.
+With the baseline Scan (1440 s) and Ring (23 Scans, 33120 s):
 
-The first $d$ IFGs of a Scan (`mode_switch_dead_ifgs`) are flagged when its
-Mode differs from that of the previous Scan. Mode changes happen at spin phase
-0, the point closest to the north ecliptic pole, where coverage is highest.
+| Switch | `mode_switch_interval_s` |
+|---|---|
+| at the end of every Scan (spin phase 0, north ecliptic pole) | 1440 |
+| Ring split into $n$ parts | 33120 / $n$ |
+| one Mode per Ring | 33120 |
+| one Mode per cycle | 99360 (3 Rings) |
+
+Half Rings (16560 s, $n = 2$) switch at spin phase π of the middle Scan, the
+south ecliptic pole, since $N_S = 23$ is odd. The baseline uses them with the
+pattern (B10, B01, B01, B10): every Ring is observed in both Modes
+(11.5 Scans each) and the Mode never changes between Rings, so each Mode
+covers the full sky in six months. Blocks longer than a Ring leave each Mode a
+subset of the Rings and a sparser coverage (one cycle per Mode: 79 % of the
+sky per Mode at nside 64 after six months). Reversing the pattern swaps the
+Modes.
+
+After a Mode switch inside an observing period the first
+$d = \lceil \tau / \Delta t \rceil$ IFGs are flagged, with $\tau$ =
+`mode_switch_dead_time_s` (baseline 300 s, $d = 150$; 0 = instantaneous
+switch). The start of an observing period (mission start, end of Recycling)
+is not a switch: the BSMs are set during the Recycling window.
 
 ## Time budget
 
@@ -70,10 +91,11 @@ f_\mathrm{rec} = \frac{N_\mathrm{rec}}{N_\mathrm{cyc}}, \qquad
 f_\mathrm{switch} = \frac{n_\mathrm{switch}\, d}{N_I N_\mathrm{cyc}},
 $$
 
-where $n_\mathrm{switch}$ counts the switching Scans per cycle. For the
-baseline, alternating Modes and B00 during recycling,
-$n_\mathrm{switch} = N_S N_R + 1$ (every observing Scan plus the entry into
-recycling): $f_\mathrm{rec} = 20.69\,\%$, $f_\mathrm{switch} = 0.11\,\%$.
+where $n_\mathrm{switch}$ counts the switches inside the observing time of a
+cycle. For the baseline (half Rings, three switches per cycle):
+$f_\mathrm{rec} = 20.69\,\%$, $f_\mathrm{switch} = 0.72\,\%$. Alternating Scan
+by Scan with the same dead time would lose $68 \cdot 150 / 62640 = 16.3\,\%$,
+always on the same arc after the north pole.
 
 ## BBIR schedule
 

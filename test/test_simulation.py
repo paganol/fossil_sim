@@ -19,7 +19,7 @@ def test_short_run_statistics(config):
     lost = result.lost_fraction()
     assert result.num_ifgs == 3 * 87 * 720
     assert lost["recycling"] == pytest.approx(18 / 87)
-    assert lost["mode_switch"] == pytest.approx((3 * 69 + 3) / (3 * 87 * 720))
+    assert lost["mode_switch"] == pytest.approx(3 * 150 / (87 * 720))  # 3 per cycle
     assert lost["saa_exceeded"] == 0.0
     assert (
         result.mode_counts["B10"] + result.mode_counts["B01"] == result.num_valid_ifgs
@@ -35,7 +35,7 @@ def test_full_sky_in_six_months(config):
     maps = result.hit_maps
     assert maps.coverage_fraction(64, np.array([183 * 86400.0]))[0] >= 0.999
     assert maps.coverage_fraction(64, np.array([150 * 86400.0]))[0] < 0.9
-    for mode_row in (1, 2):  # B01, B10 separately
+    for mode_row in (1, 2):  # B01, B10 separately: half Rings, every Ring in both
         assert np.mean(maps.hits[64][mode_row] > 0) >= 0.999
     assert result.max_saa_deg < 0.36
 

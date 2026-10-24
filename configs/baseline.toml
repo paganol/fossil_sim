@@ -39,9 +39,16 @@ lissajous_freq2_cycles_yr = 1.98507       # TBD — placeholder (WMAP)
 lissajous_phase_deg = -47.944             # TBD — placeholder (WMAP)
 
 [operations]
-ring_mode_pattern = ["B10", "B01"]        # prompt default: alternate B10/B01 Scan by Scan;
-                                          # repeated over the global Scan index
-mode_switch_dead_ifgs = 1                 # TBD — placeholder
+mode_switch_interval_s = 16560.0          # TBD — length of each Mode block, observing time only
+                                          # (clock stopped in Recycling); multiple of
+                                          # ifg_duration_s. 1440 = every Scan, 33120 / n = Ring
+                                          # in n parts. 16560 = half Ring: switch at spin phase π
+                                          # (south ecliptic pole), every Ring seen in both Modes
+mode_pattern = ["B10", "B01", "B01", "B10"]  # TBD — Mode of successive blocks, repeated; with
+                                          # half Rings: no switch between Rings (3 per cycle)
+mode_switch_dead_time_s = 300.0           # TBD — placeholder: data discarded after each switch
+                                          # within an observing period (0 = instantaneous);
+                                          # rounded up to whole IFGs
 recycling_data = "flagged"                # "flagged" | "off"
 recycling_mode = "B00"                    # TBD — placeholder
 
