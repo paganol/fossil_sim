@@ -63,6 +63,11 @@ class TimelineConfig:
     def cycle_duration_s(self) -> float:
         return self.scans_per_cycle * self.scan_duration_s
 
+    @property
+    def observing_ifgs_per_cycle(self) -> int:
+        """IFGs of a cycle outside the Recycling window."""
+        return self.scans_per_ring * self.rings_per_cycle * self.ifgs_per_scan
+
 
 @dataclass(frozen=True)
 class ScanningConfig:
@@ -87,8 +92,9 @@ class OrbitConfig:
 
 @dataclass(frozen=True)
 class OperationsConfig:
-    ring_mode_pattern: tuple[str, ...]
-    mode_switch_dead_ifgs: int
+    mode_switch_interval_s: float
+    mode_pattern: tuple[str, ...]
+    mode_switch_dead_time_s: float
     recycling_data: str
     recycling_mode: str
 
@@ -295,12 +301,18 @@ def validate(config: Config) -> None:
         )
     if sc.precession_amplitude_deg > 0 and sc.precession_period_days <= 0:
         raise ValueError("scanning.precession_period_days must be > 0")
-    bad_modes = set(ops.ring_mode_pattern) | {ops.recycling_mode}
-    if not ops.ring_mode_pattern or not bad_modes <= set(MODES):
+    bad_modes = set(ops.mode_pattern) | {ops.recycling_mode}
+    if not ops.mode_pattern or not bad_modes <= set(MODES):
         raise ValueError(f"Modes must be in {MODES}, got {sorted(bad_modes)}")
-    if not 0 <= ops.mode_switch_dead_ifgs <= tl.ifgs_per_scan:
+    block_ifgs = ops.mode_switch_interval_s / tl.ifg_duration_s
+    if block_ifgs < 1 or abs(block_ifgs - round(block_ifgs)) > 1e-9:
         raise ValueError(
-            "operations.mode_switch_dead_ifgs must be in [0, ifgs_per_scan]"
+            "operations.mode_switch_interval_s must be a positive multiple of "
+            "timeline.ifg_duration_s"
+        )
+    if not 0 <= ops.mode_switch_dead_time_s < ops.mode_switch_interval_s:
+        raise ValueError(
+            "operations.mode_switch_dead_time_s must be in [0, mode_switch_interval_s)"
         )
     if ops.recycling_data not in ("flagged", "off"):
         raise ValueError("operations.recycling_data must be 'flagged' or 'off'")

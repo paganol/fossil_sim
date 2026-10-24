@@ -13,8 +13,10 @@ physics and the mission design.
 - Maximum Solar Aspect Angle below 0.36° (`equal_per_cycle`) and 0.72°
   (`anchor_ring_start`) over the mission; the `fixed` rule drifts above 10°
   within a year.
-- Full sky at nside 64 within 183 days, for B10 and B01 separately.
-- Time lost: 20.69 % in Recycling windows, 0.11 % in mode switches.
+- Full sky at nside 64 within 183 days, for B10 and B01 separately
+  (half-Ring Mode blocks).
+- Time lost: 20.69 % in Recycling windows, 0.72 % in mode switches
+  (half-Ring Mode blocks, 300 s dead time).
 
 ## Orbit and frames
 

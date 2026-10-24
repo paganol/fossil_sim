@@ -97,23 +97,43 @@ def cycle_timeline(config: Config, cycle_id: int) -> CycleTimeline:
     )
 
 
-def scan_modes(config: Config, scan_id: np.ndarray) -> np.ndarray:
-    """Mode code of each global Scan.
+def mode_switch_dead_ifgs(config: Config) -> int:
+    """IFGs discarded after a Mode switch: the dead time rounded up to whole IFGs."""
+    tl, ops = config.timeline, config.operations
+    return int(np.ceil(ops.mode_switch_dead_time_s / tl.ifg_duration_s - 1e-9))
 
-    Observing Scans follow ``ring_mode_pattern`` over the global index of
-    observing Scans (Recycling Scans skipped), so the alternation runs
-    continuously across Rings and Cooler cycles. Recycling Scans get
+
+def _mode_blocks(config: Config, timeline: CycleTimeline):
+    """Per IFG: global Mode-block index, and IFG offset from the block start.
+
+    Blocks of ``mode_switch_interval_s`` tile the observing time only: the
+    clock stops during Recycling windows, so a block may resume after one.
+    """
+    tl = config.timeline
+    block_ifgs = round(config.operations.mode_switch_interval_s / tl.ifg_duration_s)
+    local_ifg = timeline.ifg_index - timeline.cycle_id * tl.ifgs_per_cycle
+    observing_ifg = timeline.cycle_id * tl.observing_ifgs_per_cycle + local_ifg
+    block, offset = np.divmod(observing_ifg, block_ifgs)
+    return block, offset
+
+
+def _mode_pattern(config: Config) -> np.ndarray:
+    return np.array([MODE_CODES[m] for m in config.operations.mode_pattern], np.int8)
+
+
+def ifg_modes(config: Config, timeline: CycleTimeline) -> np.ndarray:
+    """Mode code of each IFG.
+
+    The observing time is split into Mode blocks of ``mode_switch_interval_s``
+    and ``mode_pattern`` runs over the block index. Recycling IFGs get
     ``recycling_mode``.
     """
-    tl, ops = config.timeline, config.operations
-    scan_id = np.asarray(scan_id, dtype=np.int64)
-    cycle_id, scan_in_cycle = np.divmod(scan_id, tl.scans_per_cycle)
-    observing_scans = tl.scans_per_ring * tl.rings_per_cycle
-    observing_index = cycle_id * observing_scans + scan_in_cycle
-    pattern = np.array([MODE_CODES[m] for m in ops.ring_mode_pattern], dtype=np.int8)
-    modes = pattern[observing_index % len(pattern)]
+    block, _ = _mode_blocks(config, timeline)
+    pattern = _mode_pattern(config)
     return np.where(
-        scan_in_cycle >= observing_scans, MODE_CODES[ops.recycling_mode], modes
+        timeline.in_recycling,
+        MODE_CODES[config.operations.recycling_mode],
+        pattern[block % pattern.size],
     ).astype(np.int8)
 
 
@@ -144,14 +164,21 @@ def operation_flags(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Mode code and flags (without the SAA bit) of each IFG.
 
-    The first ``mode_switch_dead_ifgs`` IFGs of a Scan are flagged when its
-    Mode differs from the previous Scan's (the very first Scan of the
-    mission counts as a switch).
+    After a Mode switch within an observing period the first
+    :func:`mode_switch_dead_ifgs` IFGs are flagged. The start of an observing
+    period (mission start, end of Recycling) needs no switch: the BSMs are
+    set during the Recycling window.
     """
-    mode = scan_modes(config, timeline.scan_id)
-    previous = scan_modes(config, np.maximum(timeline.scan_id - 1, 0))
-    switched = (mode != previous) | (timeline.scan_id == 0)
-    dead = switched & (timeline.ifg_in_scan < config.operations.mode_switch_dead_ifgs)
+    mode = ifg_modes(config, timeline)
+    block, offset = _mode_blocks(config, timeline)
+    pattern = _mode_pattern(config)
+    local_ifg = timeline.ifg_index - timeline.cycle_id * config.timeline.ifgs_per_cycle
+    # the block started inside this observing period, not at its start
+    started_here = local_ifg - offset > 0
+    switched = started_here & (
+        pattern[block % pattern.size] != pattern[(block - 1) % pattern.size]
+    )
+    dead = switched & ~timeline.in_recycling & (offset < mode_switch_dead_ifgs(config))
     flags = np.zeros(mode.shape, dtype=np.uint8)
     flags[timeline.in_recycling] |= FLAG_RECYCLING
     flags[dead] |= FLAG_MODE_SWITCH
