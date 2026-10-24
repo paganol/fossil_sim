@@ -118,8 +118,12 @@ gauss_quad_degree = 50                    # zodipy default (points per line of s
 nprocesses = 1                            # zodipy parallelism (performance only)
 
 [noise]
-# Spectral-domain white noise per IFG, bin and DU (PIXIE, Kogut et al. 2011, §2):
-# δS_ν = NEP / (√(2 t_IFG) · AΩ · Δν · α · f_opt), Δν = instrument.freq_step_ghz.
+# Spectral-domain white noise per IFG, bin and DU:
+# δS_ν = NEP / (√t_IFG · AΩ · Δν · α · f_opt · m), Δν = instrument.freq_step_ghz.
+# Derived (and tested by Monte Carlo) from white noise NEP / √(2 δt) on the
+# IFG samples and a least-squares fit of the cosine amplitudes; the √(2t) of
+# PIXIE (Kogut et al. 2011; arXiv:2405.20403v2, eq. 4–6) refers to the complex Fourier
+# coefficient, a/2 for a cosine of amplitude a, so it is √2 lower.
 enabled = true
 nep_lf_w_sqrt_hz = 4.8e-16                # M8 proposal Table 2.3 (NEP_total, 30–200 GHz).
 nep_hf_w_sqrt_hz = 1.3e-14                # M8 proposal Table 2.3 (NEP_total, 200–2000 GHz).
@@ -128,6 +132,13 @@ nep_hf_w_sqrt_hz = 1.3e-14                # M8 proposal Table 2.3 (NEP_total, 20
 etendue_cm2_sr = 4.0                      # TBD — placeholder PIXIE (Kogut et al. 2011)
 absorptivity = 0.57                       # TBD — placeholder PIXIE
 optical_efficiency = 0.90                 # TBD — placeholder PIXIE
+modulation_efficiency = 1.0               # TBD — convention to fix with the instrument team,
+                                          # then remove this key: amplitude m of s(I1 − I2) in
+                                          # the DU power, P ∝ m [(I1 + I2) + s (I1 − I2) cos].
+                                          # 1 = full difference on one DU (ifg.py so far);
+                                          # Martin-Puplett (arXiv:2405.20403v2 eq. 1): 1/4 per
+                                          # single-polarization bolometer, 1/2 for a DU summing
+                                          # two (then NEP of the pair). Must match the NEP above.
 recycling_noise_factor = 3.0              # TBD — placeholder: noise × 3 in the Recycling window
 
 [output]
