@@ -136,10 +136,10 @@ class SpectralMaps:
     ) -> None:
         """Accumulate valid IFGs.
 
-        ``sky_estimate`` is (n, n_freq), NaN for non-science IFGs;
+        ``sky_estimate`` is (n, n_freq), used only for science IFGs (B10, B01);
         ``raw_by_output[o]`` is the full-band differential spectrum of output o.
         """
-        science = ~np.isnan(sky_estimate[:, 0])
+        science = np.isin(mode_names, DIAGNOSTIC_MODES)
         for nside, sums in self.sky_sum.items():
             pixels = hp.vec2pix(
                 nside, boresight[:, 0], boresight[:, 1], boresight[:, 2]
