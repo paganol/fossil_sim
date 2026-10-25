@@ -51,6 +51,7 @@ def test_hash_is_stable_and_content_based():
         ("instrument", "dichroic_split_ghz", 2500.0),
         ("maps", "nsides", [64, 100]),
         ("ifg", "max_opd_m", 0.005),
+        ("ifg", "samples_per_ifg", 200),  # OPD step above Nyquist at 2 THz
         ("noise", "modulation_efficiency", 1.5),
     ],
 )

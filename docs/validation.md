@@ -44,6 +44,12 @@ physics and the mission design.
 - Static sky with real pysm3 models: dust dominates at THz on the Galactic
   plane (optional test).
 - Ideal-FTS interferogram round trip exact; L + R constant.
+- IFG-domain simulation: without sky change and noise equal to the spectral
+  domain to $10^{-9}$; the Ring-circle grid with cubic interpolation equal to
+  the Static sky at each sample direction to $10^{-4}$ of a beam-size source,
+  and the IFG equal to a sample-by-sample evaluation to $3\times10^{-3}$ of
+  the sky-change effect; a sky linear in time during the IFG cancels; sample
+  noise recovers the spectral noise level to 3 %.
 - Noise: per-IFG level equal to the PIXIE formula; realizations reproducible
   and keyed by cycle; Recycling IFGs × `recycling_noise_factor`; (noisy −
   noiseless) sky map normalized by the variance map has unit standard

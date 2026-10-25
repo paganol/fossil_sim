@@ -21,7 +21,7 @@ identify a run ({meth}`fossil_sim.config.Config.provenance`).
 | `[zodi]` | zodipy model, extrapolation, quadrature, parallelism |
 | `[noise]` | NEPs, étendue, efficiencies, Recycling noise factor |
 | `[output]` | per-cycle TOD files |
-| `[ifg]` | OPD range, samples per IFG, OPD per mirror displacement |
+| `[ifg]` | OPD range, samples per IFG, OPD per mirror displacement, IFG-domain simulation |
 
 ## Baseline
 
