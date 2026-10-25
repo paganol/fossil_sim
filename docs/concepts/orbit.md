@@ -2,7 +2,7 @@
 
 The spacecraft position is needed for the anti-Sun direction (scanning
 strategy, Solar Aspect Angle) and its velocity for the kinematic dipole
-({doc}`sky`). The model, implemented in {class}`fossil_sim.orbit.L2Orbit`,
+({doc}`boost`). The model, implemented in {class}`fossil_sim.orbit.L2Orbit`,
 follows litebird_sim: an approximate L2 point plus a Lissajous orbit.
 
 ## Ephemerides
