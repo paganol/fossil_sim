@@ -29,10 +29,15 @@ def bbir_spectra_mjy_sr(
 def port_spectra_mjy_sr(
     sky_mjy_sr: np.ndarray, bbir_mjy_sr: np.ndarray, mode: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Spectra entering Port 1 and Port 2, each of shape (n_ifg, n_freq)."""
+    """Spectra entering Port 1 and Port 2, each of shape (n_ifg, n_freq).
+
+    ``sky_mjy_sr`` may carry extra axes, (n_ifg, ..., n_freq), with
+    ``bbir_mjy_sr`` (n_ifg, 2, ..., n_freq) broadcasting to them.
+    """
     port1_on_sky, port2_on_sky = mode_sky_ports(mode)
-    port1 = np.where(port1_on_sky[:, None], sky_mjy_sr, bbir_mjy_sr[:, 0])
-    port2 = np.where(port2_on_sky[:, None], sky_mjy_sr, bbir_mjy_sr[:, 1])
+    shape = (-1,) + (1,) * (sky_mjy_sr.ndim - 1)
+    port1 = np.where(port1_on_sky.reshape(shape), sky_mjy_sr, bbir_mjy_sr[:, 0])
+    port2 = np.where(port2_on_sky.reshape(shape), sky_mjy_sr, bbir_mjy_sr[:, 1])
     return port1, port2
 
 

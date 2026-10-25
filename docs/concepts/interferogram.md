@@ -1,8 +1,10 @@
 # Interferogram
 
-An ideal-FTS interferogram model ({mod}`fossil_sim.ifg`) illustrates the
-measurement; instrumental systematics (mirror trajectory, time constants,
-phase errors, arm imbalance) are planned for the IFG-domain simulation.
+An ideal-FTS interferogram model ({mod}`fossil_sim.ifg`). By default the
+simulation works in the spectral domain; with `ifg.simulate = true` it builds
+the samples of every interferogram and recovers the spectrum from them
+(below). Instrumental systematics (mirror trajectory, time constants, phase
+errors, arm imbalance) are planned on top of the IFG-domain simulation.
 
 ## Model
 
@@ -48,3 +50,44 @@ where $a_0$ absorbs the unmodulated term and $a_k = s\,(I_1 - I_2)(\nu_k)$.
 With the grid matched to the scan ($x_\mathrm{max} = c / 2\Delta\nu$) the
 cosines are close to orthogonal and the recovery is exact for a noiseless,
 band-limited input.
+
+## IFG-domain simulation
+
+With `ifg.simulate = true` each IFG of each DU is built sample by sample, white
+noise $\mathrm{NEP}/\sqrt{2\,\delta t}$ is added to the samples
+({doc}`noise`) and the differential spectrum is recovered by the least squares
+above; the rest of the chain (sky estimate, maps, flags) is unchanged. The
+samples are equispaced in time, sample $j$ at $(j + \tfrac12)\,\delta t$, with
+the OPD linear in time from $-x_\mathrm{max}$ to $+x_\mathrm{max}$ (a
+placeholder mirror trajectory).
+
+### Sky during the IFG
+
+In 2 s the boresight moves by 0.5° along the Ring circle, a third of the
+beam. With `ifg.sky_variation = true` the Static sky follows the boresight
+during the IFG. The Scans of a Ring retrace the same circle, so along a Ring
+the Static sky is a function of the spin phase only, band-limited by the beam.
+It is synthesized once per Ring on a grid of 8 points per IFG (0.0625°, 5760
+per circle) for $I$ and the two Doppler $K$ cubes, and each sample takes the
+cubic (Lagrange) interpolation of its four neighbours. The interpolation error
+is below $10^{-4}$ of a beam-size source; the synthesis is cheaper than the
+per-IFG sampling of the spectral domain, and a cycle costs about 17 s instead
+of 15 s. The Isotropic backgrounds, the zodiacal light and $\boldsymbol\beta\cdot\hat{\mathbf n}$
+in the Doppler term, smooth on 0.5°, keep their value at the IFG centre. With
+`sky_variation = false` the whole sky is that of the IFG centre: without noise
+the result then equals the spectral domain to numerical precision.
+
+A precession within the Ring would break the circle symmetry; the general
+alternative is the interpolator of ducc0 (`totalconvolve.Interpolator`), as in
+litebird_sim.
+
+### What the sky change does
+
+A symmetric scan rejects any part of the signal odd in time about the IFG
+centre: a sky changing linearly during the IFG gives the same spectrum as the
+sky at the centre. The even part does not cancel, and it enters mostly through
+the unmodulated term: $\sum_k w_k (I_1 + I_2)\,\Delta\nu$, the sky integrated
+over the whole band, varies during the IFG and leaks into the cosine
+amplitudes of every bin. A beam-size source crossed at the IFG centre changes
+the recovered spectrum by a few per cent of its amplitude, and the effect is
+largest on the bins where the source is faint compared with the band total.

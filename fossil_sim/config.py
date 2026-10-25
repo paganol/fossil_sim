@@ -189,6 +189,8 @@ class IFGConfig:
     max_opd_m: float
     opd_per_mirror_position: float
     samples_per_ifg: int
+    simulate: bool
+    sky_variation: bool
 
 
 @dataclass(frozen=True)
@@ -319,6 +321,11 @@ def validate(config: Config) -> None:
         raise ValueError("operations.recycling_data must be 'flagged' or 'off'")
     if config.ifg.opd_per_mirror_position <= 0 or config.ifg.max_opd_m <= 0:
         raise ValueError("ifg: max_opd_m and opd_per_mirror_position must be > 0")
+    opd_step_m = 2 * config.ifg.max_opd_m / max(config.ifg.samples_per_ifg - 1, 1)
+    if opd_step_m * config.instrument.freq_max_ghz * 1e9 > 0.5 * C_LIGHT_M_S:
+        raise ValueError(
+            "ifg.samples_per_ifg too few to sample instrument.freq_max_ghz"
+        )
     st = config.static_sky
     for model in st.models:
         if model.startswith(FORBIDDEN_STATIC_MODELS):

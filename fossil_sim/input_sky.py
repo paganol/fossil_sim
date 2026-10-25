@@ -349,10 +349,11 @@ def static_doppler_mjy_sr(
 
     ``k_mjy_sr`` is K = 3 I − dI/d ln ν of that part (:meth:`StaticSky.sample_doppler`),
     ``velocity_km_s`` the observer velocity in its frame, (n, 3) or (3,).
+    ``k_mjy_sr`` has n as first axis, (n, n_freq) or (n, ..., n_freq).
     """
     velocity_km_s = np.broadcast_to(velocity_km_s, direction.shape)
     beta_dot_n = np.sum(velocity_km_s * direction, axis=1) / C_LIGHT_KM_S
-    return beta_dot_n[:, None] * k_mjy_sr
+    return beta_dot_n.reshape((-1,) + (1,) * (k_mjy_sr.ndim - 1)) * k_mjy_sr
 
 
 class ZodiacalLight:

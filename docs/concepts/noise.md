@@ -32,7 +32,9 @@ bolometer of a Martin-Puplett FTS (PIXIE, Kogut et al., arXiv:2405.20403v2, eq. 
 two of them; the NEP must refer to the same detector.
 
 The noise is added to the differential spectrum $d(\nu)$ of each DU, so that
-it propagates to the sky estimate; IFGs of the Recycling window get
+it propagates to the sky estimate (with `ifg.simulate = true` it is drawn on the
+IFG samples instead, $\mathrm{NEP}/\sqrt{2\,\delta t}$, and reaches $d(\nu)$
+through the fit, {doc}`interferogram`); IFGs of the Recycling window get
 `recycling_noise_factor` times this level. The NEPs are the totals of the M8
 proposal (Table 2.3, photon-noise dominated), read as one value per DU (four
 pixels combined); AΩ, $\alpha$ and $f_\mathrm{opt}$ are PIXIE placeholders.

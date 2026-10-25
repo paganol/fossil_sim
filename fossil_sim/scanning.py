@@ -155,13 +155,21 @@ def cycle_pointing(
     )
 
 
-def ring_circles(config: Config, axes: np.ndarray) -> np.ndarray:
-    """Boresight of every IFG phase of each Ring, shape (n_rings, ifgs_per_scan, 3).
+def ring_circles(
+    config: Config,
+    axes: np.ndarray,
+    points_per_ifg: int = 1,
+    phase_offset: float = 0.5,
+) -> np.ndarray:
+    """Boresight along the circle of each Ring, shape (n_rings, n_points, 3).
 
     The Scans of a Ring retrace this circle (Spin axis frozen within the Ring).
+    Point g is at spin phase 2π (g + ``phase_offset``) / n_points, with
+    n_points = ``points_per_ifg`` × ifgs_per_scan; the defaults give the IFG
+    centres.
     """
-    n_ifg = config.timeline.ifgs_per_scan
-    phase_rad = 2 * np.pi * (np.arange(n_ifg) + 0.5) / n_ifg
+    n_ifg = config.timeline.ifgs_per_scan * points_per_ifg
+    phase_rad = 2 * np.pi * (np.arange(n_ifg) + phase_offset) / n_ifg
     ring = np.repeat(np.arange(axes.shape[0]), n_ifg)
     out = np.empty((ring.size, 3))
     _boresight_kernel(

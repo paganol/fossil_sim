@@ -145,7 +145,7 @@ recycling_noise_factor = 3.0              # TBD — placeholder: noise × 3 in t
 save_tod = false                          # one HDF5 file per Cooler cycle when true
 
 [ifg]
-# Ideal-FTS interferogram (illustration only in v0.1), modulation cos(2π ν x / c)
+# Ideal-FTS interferogram, modulation cos(2π ν x / c)
 # with x the optical path difference (OPD): spectral resolution c / (2 x_max),
 # Nyquist sampling of ν_max needs an OPD step <= c / (2 ν_max).
 max_opd_m = 0.01                          # TBD — placeholder: c / (2 × 15 GHz), matches freq_step_ghz
@@ -153,3 +153,8 @@ samples_per_ifg = 512                     # TBD — placeholder: symmetric scan 
                                           # step 39 µm < c / (2 × 2000 GHz) = 75 µm
 opd_per_mirror_position = 2.0             # TBD — OPD / mirror displacement; 2 from the Step2
                                           # formula cos(4π ν δ / c); 4 if both rooftops move (PIXIE-like)
+simulate = false                          # false: spectral domain (sky + Gaussian noise per bin);
+                                          # true: IFG samples + white noise, spectrum by least
+                                          # squares (docs: Interferogram)
+sky_variation = true                      # with simulate: Static sky follows the boresight
+                                          # during the IFG (false: sky at the IFG centre)

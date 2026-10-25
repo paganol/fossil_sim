@@ -12,6 +12,7 @@ import h5py
 import numpy as np
 
 from .config import MODES, Config
+from .ifg import differential_spectra, du_interferograms, opd_samples_m, sample_weights
 from .input_sky import (
     StaticSky,
     ZodiacalLight,
@@ -22,7 +23,12 @@ from .input_sky import (
 )
 from .instrument import detector_units, frequency_grid_ghz
 from .mapmaking import DIAGNOSTIC_OUTPUTS, HitMaps, SpectralMaps
-from .noise import du_noise_mjy_sr, sky_estimate_noise_variance
+from .noise import (
+    du_noise_mjy_sr,
+    ifg_noise_rng,
+    sample_noise_sigma,
+    sky_estimate_noise_variance,
+)
 from .operations import (
     FLAG_NAMES,
     FLAG_SAA_EXCEEDED,
@@ -32,7 +38,7 @@ from .operations import (
     operation_flags,
 )
 from .orbit import L2Orbit
-from .scanning import cycle_pointing, ring_spin_axes
+from .scanning import cycle_pointing, ring_circles, ring_spin_axes
 from .signal import (
     bbir_spectra_mjy_sr,
     du_differential_spectra,
@@ -42,6 +48,11 @@ from .signal import (
 
 # IFGs processed together when computing spectra (bounds the memory per step)
 SIGNAL_BLOCK_IFGS = 8192
+# with ifg.simulate: smaller blocks (sky windows and samples per IFG)
+IFG_BLOCK_IFGS = 1024
+# Static-sky grid points per IFG along the Ring circle (0.0625° at baseline),
+# cubic interpolation to the samples (docs: Interferogram)
+SKY_GRID_PER_IFG = 8
 
 IFG_DTYPE = np.dtype(
     [
@@ -96,7 +107,11 @@ def build_ifg_table(config: Config, orbit: L2Orbit, cycle_id: int) -> np.ndarray
 
 
 class SignalModel:
-    """Spectral-domain signal of each IFG, optionally with white noise."""
+    """Signal of each IFG as DU differential spectra, optionally with white noise.
+
+    Spectral domain by default; with ``ifg.simulate`` the spectra are
+    recovered from simulated interferograms.
+    """
 
     def __init__(
         self, config: Config, orbit: L2Orbit, static_sky: StaticSky | None = None
@@ -115,6 +130,11 @@ class SignalModel:
             if config.sky.apply_beam_to_dipole
             else 1.0
         )
+        if config.ifg.simulate:
+            self.opd_m = opd_samples_m(config.ifg)
+            self.sample_weights = sample_weights(
+                config.ifg.samples_per_ifg, SKY_GRID_PER_IFG
+            )
 
     def velocity_km_s(self, orbital_km_s: np.ndarray) -> np.ndarray:
         """Spacecraft velocity with respect to the CMB, (n, 3)."""
@@ -130,8 +150,30 @@ class SignalModel:
         axes = ring_spin_axes(self.config, self.orbit, cycle_id)
         return self.zodi.for_cycle(cycle_id, axes, table)
 
+    def static_circles(self, cycle_id: int) -> np.ndarray | None:
+        """Static sky on a fine grid of spin phase along each Ring of a cycle.
+
+        Shape (n_parts, n_rings, SKY_GRID_PER_IFG × ifgs_per_scan, n_freq):
+        I, then the barycentric and cosmological K when ``static_sky.doppler``;
+        grid point g at spin phase 2π g / n_grid. None unless the IFG-domain
+        simulation follows the sky during the IFG.
+        """
+        ifg = self.config.ifg
+        if not (ifg.simulate and ifg.sky_variation) or self.static_sky is None:
+            return None
+        axes = ring_spin_axes(self.config, self.orbit, cycle_id)
+        circles = ring_circles(self.config, axes, SKY_GRID_PER_IFG, phase_offset=0.0)
+        direction = circles.reshape(-1, 3)
+        parts = [self.static_sky.sample(direction)]
+        if self.config.static_sky.doppler:
+            parts += self.static_sky.sample_doppler(direction)
+        return np.stack(parts).reshape(len(parts), *circles.shape[:2], -1)
+
     def sky_mjy_sr(
-        self, table: np.ndarray, zodi: np.ndarray | None = None
+        self,
+        table: np.ndarray,
+        zodi: np.ndarray | None = None,
+        include_static: bool = True,
     ) -> np.ndarray:
         """Total sky along the boresight, (n, n_freq).
 
@@ -147,7 +189,7 @@ class SignalModel:
             self.config.sky,
             self.beam_factor,
         )
-        if self.static_sky is not None:
+        if self.static_sky is not None and include_static:
             sky += self.static_sky.sample(direction)
             if self.config.static_sky.doppler:
                 # Galactic part: barycentric frame; cosmological part: CMB frame
@@ -162,12 +204,55 @@ class SignalModel:
             sky += zodi
         return sky
 
+    def sky_windows(
+        self,
+        table: np.ndarray,
+        zodi: np.ndarray | None = None,
+        circles: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Sky on the window of each IFG, (n, SKY_GRID_PER_IFG + 3, n_freq).
+
+        The window is the grid of :func:`fossil_sim.ifg.sample_weights`. The
+        Static sky comes from ``circles`` (:meth:`static_circles`); the other
+        components, smooth on the 0.5° of an IFG, keep their value at the IFG
+        centre, as does β·n̂ in the Static-sky Doppler. Without ``circles`` the
+        whole sky is that of the IFG centre.
+        """
+        n_window = SKY_GRID_PER_IFG + 3
+        if circles is None:
+            sky = self.sky_mjy_sr(table, zodi)
+            return np.broadcast_to(sky[:, None], (sky.shape[0], n_window, sky.shape[1]))
+        index = (
+            table["ifg_in_scan"].astype(np.int64)[:, None] * SKY_GRID_PER_IFG
+            - 1
+            + np.arange(n_window)
+        ) % circles.shape[2]
+        parts = circles[:, table["ring_in_cycle"].astype(np.int64)[:, None], index]
+        sky = self.sky_mjy_sr(table, zodi, include_static=False)[:, None] + parts[0]
+        if parts.shape[0] == 3:
+            direction = table["boresight"]
+            orbital_km_s = self.orbit.position_velocity(table["time_mid_s"])[1]
+            sky += static_doppler_mjy_sr(parts[1], direction, orbital_km_s)
+            sky += static_doppler_mjy_sr(
+                parts[2], direction, self.solar_velocity_km_s + orbital_km_s
+            )
+        return sky
+
     def noise_for_cycle(
         self, cycle_id: int, table: np.ndarray
-    ) -> dict[str, np.ndarray] | None:
-        """White noise of each DU over a whole cycle, or None if disabled."""
+    ) -> dict[str, np.ndarray] | dict[str, np.random.Generator] | None:
+        """White noise of each DU over a whole cycle, or None if disabled.
+
+        With ``ifg.simulate``: one generator of sample noise per DU, drawn
+        block by block by :meth:`compute`.
+        """
         if not self.config.noise.enabled:
             return None
+        if self.config.ifg.simulate:
+            return {
+                du.name: ifg_noise_rng(self.config, i, cycle_id)
+                for i, du in enumerate(self.dus)
+            }
         in_recycling = table["ring_id"] == -1
         return {
             du.name: du_noise_mjy_sr(
@@ -185,23 +270,56 @@ class SignalModel:
         self,
         table: np.ndarray,
         zodi: np.ndarray | None = None,
-        noise: dict[str, np.ndarray] | None = None,
+        noise: dict | None = None,
+        circles: np.ndarray | None = None,
     ) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray]:
         """DU differential spectra, sky estimate and BBIR spectra for a block of IFGs.
 
-        ``noise`` (per DU, same shapes as the spectra) is added to the DU
-        spectra, hence propagated to the sky estimate.
+        ``noise`` (from :meth:`noise_for_cycle`) is added to the DU spectra,
+        or to the IFG samples with ``ifg.simulate``, hence propagated to the
+        sky estimate. ``circles`` comes from :meth:`static_circles`.
         """
-        sky = self.sky_mjy_sr(table, zodi)
         bbir = bbir_spectra_mjy_sr(self.freq_ghz, table["bbir_port_temperature_k"])
-        port1, port2 = port_spectra_mjy_sr(sky, bbir, table["mode"])
-        du_spectra = du_differential_spectra(self.freq_ghz, port1, port2, self.dus)
-        if noise is not None:
-            du_spectra = {name: s + noise[name] for name, s in du_spectra.items()}
+        if self.config.ifg.simulate:
+            du_spectra = self.ifg_du_spectra(
+                table, self.sky_windows(table, zodi, circles), bbir, noise
+            )
+        else:
+            sky = self.sky_mjy_sr(table, zodi)
+            port1, port2 = port_spectra_mjy_sr(sky, bbir, table["mode"])
+            du_spectra = du_differential_spectra(self.freq_ghz, port1, port2, self.dus)
+            if noise is not None:
+                du_spectra = {name: s + noise[name] for name, s in du_spectra.items()}
         estimate = sky_estimate_mjy_sr(
             self.freq_ghz, du_spectra, self.dus, bbir, table["mode"]
         )
         return du_spectra, estimate, bbir
+
+    def ifg_du_spectra(
+        self,
+        table: np.ndarray,
+        sky_windows: np.ndarray,
+        bbir: np.ndarray,
+        noise: dict[str, np.random.Generator] | None = None,
+    ) -> dict[str, np.ndarray]:
+        """DU differential spectra recovered from simulated interferograms."""
+        port1, port2 = port_spectra_mjy_sr(sky_windows, bbir[:, :, None], table["mode"])
+        m = self.config.noise.modulation_efficiency
+        recycling_scale = np.where(
+            table["ring_id"] == -1, self.config.noise.recycling_noise_factor, 1.0
+        )
+        result = {}
+        for du in self.dus:
+            ifgs = du_interferograms(
+                self.freq_ghz, port1, port2, du, self.opd_m, self.sample_weights, m
+            )
+            if noise is not None:
+                sigma = sample_noise_sigma(self.config, du) * recycling_scale
+                ifgs += noise[du.name].standard_normal(ifgs.shape) * sigma[:, None]
+            result[du.name] = differential_spectra(
+                self.freq_ghz, ifgs, du, self.opd_m, m
+            )
+        return result
 
     def output_spectra(
         self, du_spectra: dict[str, np.ndarray]
@@ -362,14 +480,18 @@ def _process_signal(config, model, table, spectral_maps, cycle_id, output_dir) -
     # if the frequency grid gets much finer
     zodi = model.zodi_for_cycle(cycle_id, table)
     noise = model.noise_for_cycle(cycle_id, table)
-    for start in range(0, table.size, SIGNAL_BLOCK_IFGS):
-        chunk = slice(start, start + SIGNAL_BLOCK_IFGS)
+    circles = model.static_circles(cycle_id)
+    block_ifgs = IFG_BLOCK_IFGS if config.ifg.simulate else SIGNAL_BLOCK_IFGS
+    for start in range(0, table.size, block_ifgs):
+        chunk = slice(start, start + block_ifgs)
         block = table[chunk]
         block_zodi = None if zodi is None else zodi[chunk]
         block_noise = (
-            None if noise is None else {name: n[chunk] for name, n in noise.items()}
+            noise  # None, or generators drawn block by block (ifg.simulate)
+            if noise is None or config.ifg.simulate
+            else {name: n[chunk] for name, n in noise.items()}
         )
-        du_spectra, estimate, _ = model.compute(block, block_zodi, block_noise)
+        du_spectra, estimate, _ = model.compute(block, block_zodi, block_noise, circles)
         if config.output.save_tod:
             tod_blocks.append(du_spectra)
         valid = block["flags"] == 0

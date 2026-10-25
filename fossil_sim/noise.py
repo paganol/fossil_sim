@@ -22,6 +22,10 @@ eq. 1), 1/2 for a DU summing two. Once fixed, fold it into the signal model
 and remove the key. IFGs in the Recycling window get ``recycling_noise_factor``
 times this level. Realizations are keyed by (component, cycle, DU), never by
 MPI rank (ADR 0001).
+
+With ``ifg.simulate`` the noise is drawn instead on the IFG samples,
+:func:`sample_noise_sigma`, and reaches the spectrum through the least-squares
+fit; a cycle is one stream per DU, drawn block by block in time order.
 """
 
 import numpy as np
@@ -31,6 +35,7 @@ from .instrument import DetectorUnit
 
 # First entry of the SeedSequence key, separating noise from future components
 NOISE_COMPONENT_ID = 1
+IFG_NOISE_COMPONENT_ID = 2
 
 # 1 MJy/sr = 1e-20 W m⁻² Hz⁻¹ sr⁻¹
 SI_TO_MJY_SR = 1e20
@@ -51,6 +56,28 @@ def noise_sigma_mjy_sr(config: Config, du: DetectorUnit) -> float:
         * nc.modulation_efficiency
     )
     return sigma_si * SI_TO_MJY_SR
+
+
+def sample_noise_sigma(config: Config, du: DetectorUnit) -> float:
+    """White-noise standard deviation per IFG sample of one DU, MJy/sr × GHz.
+
+    NEP / √(2 δt) in the units of :func:`fossil_sim.ifg.du_interferograms`,
+    so that the fitted cosine amplitudes have :func:`noise_sigma_mjy_sr`.
+    """
+    return (
+        noise_sigma_mjy_sr(config, du)
+        * config.instrument.freq_step_ghz
+        * config.noise.modulation_efficiency
+        * np.sqrt(config.ifg.samples_per_ifg / 2)
+    )
+
+
+def ifg_noise_rng(config: Config, du_index: int, cycle_id: int) -> np.random.Generator:
+    """Generator of the sample noise of one DU over a Cooler cycle."""
+    seed = np.random.SeedSequence(
+        [config.simulation.master_seed, IFG_NOISE_COMPONENT_ID, cycle_id, du_index]
+    )
+    return np.random.default_rng(seed)
 
 
 def du_noise_mjy_sr(
