@@ -202,8 +202,8 @@ class SignalModel:
             else:
                 parts = circles[
                     :,
-                    table["ring_in_cycle"].astype(np.int64),
-                    table["ifg_in_scan"].astype(np.int64),
+                    table["ring_in_cycle"],
+                    table["ifg_in_scan"],
                 ]
             sky += parts[0]
             if len(parts) == 3:
@@ -236,11 +236,9 @@ class SignalModel:
             sky = self.sky_mjy_sr(table, zodi)
             return np.broadcast_to(sky[:, None], (sky.shape[0], n_window, sky.shape[1]))
         index = (
-            table["ifg_in_scan"].astype(np.int64)[:, None] * SKY_GRID_PER_IFG
-            - 1
-            + np.arange(n_window)
+            table["ifg_in_scan"][:, None] * SKY_GRID_PER_IFG - 1 + np.arange(n_window)
         ) % circles.shape[2]
-        parts = circles[:, table["ring_in_cycle"].astype(np.int64)[:, None], index]
+        parts = circles[:, table["ring_in_cycle"][:, None], index]
         sky = self.sky_mjy_sr(table, zodi, include_static=False)[:, None] + parts[0]
         if parts.shape[0] == 3:
             direction = table["boresight"]
