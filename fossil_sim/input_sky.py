@@ -20,7 +20,10 @@ receive the solar + orbital one (ADR 0003).
 
 import hashlib
 import json
+import os
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
 
 import ducc0
@@ -29,6 +32,7 @@ import healpy as hp
 import numpy as np
 from astropy import units as u
 from astropy.coordinates import BarycentricMeanEcliptic, SkyCoord
+from numpy.polynomial.chebyshev import chebvander
 
 from .config import EXTRAGALACTIC_STATIC_MODELS, Config, SkyConfig, StaticSkyConfig
 from .constants import C_LIGHT_M_S
@@ -90,6 +94,46 @@ def dipole_beam_factor(beam_fwhm_deg: float) -> float:
     return float(np.exp(-(sigma_rad**2)))
 
 
+# Chebyshev nodes in the boost factor ν′/ν for the smooth Isotropic backgrounds:
+# over |ν′/ν − 1| ≲ 1.3e-3 the error is ~(1.3e-3 x / 2)^n / n! relative, below
+# rounding up to 2 THz (x ≈ 35)
+BOOST_CHEBYSHEV_NODES = 12
+
+
+def _boosted_spectra_mjy_sr(
+    freq_ghz: np.ndarray, factor: np.ndarray, sky: SkyConfig
+) -> np.ndarray:
+    """(ν / ν′)³ I_rest(ν′) for each boost factor ν′ / ν, shape (n, n_freq).
+
+    The smooth backgrounds are evaluated at BOOST_CHEBYSHEV_NODES factors
+    spanning ``factor`` and interpolated (equal to the direct evaluation to
+    rounding); extragalactic CO, a piecewise-linear template, is evaluated
+    for each factor.
+    """
+
+    def direct(f, s):
+        return isotropic_background_mjy_sr(freq_ghz[None, :] * f[:, None], s) / (
+            f[:, None] ** 3
+        )
+
+    low, high = factor.min(), factor.max()
+    n_nodes = BOOST_CHEBYSHEV_NODES
+    if factor.size <= n_nodes or low == high:
+        return direct(factor, sky)
+    centre, half_width = 0.5 * (high + low), 0.5 * (high - low)
+    k = np.arange(n_nodes)
+    angle = np.pi * (k + 0.5) / n_nodes
+    values = direct(centre + half_width * np.cos(angle), replace(sky, co_amplitude=0.0))
+    coefficients = 2.0 / n_nodes * np.cos(np.outer(k, angle)) @ values
+    coefficients[0] /= 2
+    observed = chebvander((factor - centre) / half_width, n_nodes - 1) @ coefficients
+    if sky.co_amplitude:
+        observed += extragalactic_co_mjy_sr(
+            freq_ghz[None, :] * factor[:, None], sky.co_amplitude
+        ) / (factor[:, None] ** 3)
+    return observed
+
+
 def boosted_isotropic_background_mjy_sr(
     freq_ghz: np.ndarray,
     direction: np.ndarray,
@@ -119,10 +163,7 @@ def boosted_isotropic_background_mjy_sr(
     beta = np.broadcast_to(velocity_km_s, direction.shape) / C_LIGHT_KM_S
     gamma = 1.0 / np.sqrt(1.0 - np.sum(beta**2, axis=1))
     factor = gamma * (1.0 - np.sum(beta * direction, axis=1))  # ν′ / ν
-    observed = (
-        isotropic_background_mjy_sr(freq_ghz[None, :] * factor[:, None], sky)
-        / factor[:, None] ** 3
-    )
+    observed = _boosted_spectra_mjy_sr(freq_ghz, factor, sky)
     if beam_factor != 1.0:
         rest = isotropic_background_mjy_sr(freq_ghz, sky)[None, :]
         observed = rest + beam_factor * (observed - rest)
@@ -131,7 +172,8 @@ def boosted_isotropic_background_mjy_sr(
 
 # Relative accuracy of ducc0's synthesis at arbitrary positions
 SYNTHESIS_EPSILON = 1e-9
-# ponytail: all cores for ducc0; set explicitly if several MPI ranks share a node
+# Threads for the Static-sky synthesis (0 = all cores); ponytail: set explicitly
+# if several MPI ranks share a node
 DUCC0_NTHREADS = 0
 # Half step in ln ν of the central difference giving dI/d ln ν from pysm3:
 # for I ∝ ν^α the slope is off by α³ε²/6 · I (1.3e-4 I for α = 2)
@@ -315,17 +357,20 @@ class StaticSky:
             pixels = hp.ang2pix(self.config.nside, theta, phi)
             return maps[:, pixels].T.copy()
         loc = np.column_stack([theta, phi])
-        result = np.empty((direction.shape[0], self.freq_ghz.size))
-        for i in range(self.freq_ghz.size):
-            result[:, i] = ducc0.sht.synthesis_general(
-                alm=cube[i],
+
+        def synthesize(alm):
+            return ducc0.sht.synthesis_general(
+                alm=alm,
                 spin=0,
                 lmax=self.config.lmax,
                 loc=loc,
                 epsilon=SYNTHESIS_EPSILON,
-                nthreads=DUCC0_NTHREADS,
+                nthreads=1,
             )[0]
-        return result
+
+        # one frequency per thread: faster than ducc0's threads on short calls
+        with ThreadPoolExecutor(DUCC0_NTHREADS or os.cpu_count()) as pool:
+            return np.column_stack(list(pool.map(synthesize, cube)))
 
     def sample(self, direction: np.ndarray) -> np.ndarray:
         """Static sky along each direction, shape (n, n_freq), MJy/sr."""
@@ -354,6 +399,10 @@ def static_doppler_mjy_sr(
     velocity_km_s = np.broadcast_to(velocity_km_s, direction.shape)
     beta_dot_n = np.sum(velocity_km_s * direction, axis=1) / C_LIGHT_KM_S
     return beta_dot_n.reshape((-1,) + (1,) * (k_mjy_sr.ndim - 1)) * k_mjy_sr
+
+
+# Directions per block in the single-pass zodiacal light (~48 MB at 132 bins)
+ZODI_BLOCK_DIRECTIONS = 16384
 
 
 class ZodiacalLight:
@@ -398,8 +447,9 @@ class ZodiacalLight:
         Same quadrature as ``zodipy.Model._evaluate`` (zodipy 1.1, private
         API), for Kelsall-type models without scattering (planck18): number
         density and grain temperature, independent of frequency, are computed
-        once instead of once per frequency. Equal to :meth:`zodipy.Model.evaluate`
-        to rounding (test_zodi).
+        once instead of once per frequency, and B_ν(T) enters through one matrix
+        product with the tabulated temperatures. Equal to
+        :meth:`zodipy.Model.evaluate` to rounding (test_zodi).
         """
         from zodipy.blackbody import TEMPERATURES
         from zodipy.bodies import arrange_obstimes, get_interp_bodypos
@@ -407,11 +457,15 @@ class ZodiacalLight:
         from zodipy.number_density import update_partial_earth_pos
 
         reference = self.models[0]
-        obstime = coords.obstime
+        mjd = coords.obstime.mjd
+        # zodipy spans obstime[0]..obstime[-1]; min..max (at least two hourly
+        # nodes) also covers unsorted blocks and a single instant
         earth_au = get_interp_bodypos(
             body="earth",
-            obstimes=obstime.mjd,
-            interp_obstimes=arrange_obstimes(obstime[0].mjd, obstime[-1].mjd),
+            obstimes=mjd,
+            interp_obstimes=arrange_obstimes(
+                mjd.min(), max(mjd.max(), mjd.min() + 1 / 24)
+            ),
             ephemeris=reference._ephemeris,
         )
         u_los = coords.transform_to(BarycentricMeanEcliptic).cartesian.xyz.value
@@ -427,30 +481,43 @@ class ZodiacalLight:
         points, weights = np.polynomial.legendre.leggauss(
             self.config.zodi.gauss_quad_degree
         )
-        result = np.zeros((self.freq_ghz.size, u_los.shape[1]))
+        n_pix = u_los.shape[1]
+        pixels = np.arange(n_pix)
+        result = np.zeros((self.freq_ghz.size, n_pix))
         for label in reference._ipd_model.comps:
             half_length = 0.5 * (stop[label] - start[label])
             middle = 0.5 * (stop[label] + start[label])
-            column = np.zeros_like(result)
+            # weight of each tabulated temperature along each line of sight:
+            # linear interpolation of B_ν(T) as np.interp, summed over the quadrature
+            temperature_weights = np.zeros((TEMPERATURES.size, n_pix))
             for r, w in zip(points, weights, strict=True):
                 x_helio = (half_length * r + middle) * u_los + obspos_au
                 r_helio = np.sqrt(np.sum(x_helio**2, axis=0))
-                # linear interpolation of the tabulated B_ν(T), as np.interp
                 position = np.interp(
                     t_0 * r_helio**-delta, TEMPERATURES, np.arange(TEMPERATURES.size)
                 )
                 i = np.minimum(position.astype(np.int64), TEMPERATURES.size - 2)
                 fraction = position - i
-                b_nu_los = b_nu[:, i] * (1 - fraction) + b_nu[:, i + 1] * fraction
-                column += (w * half_length * density_funcs[label](x_helio)) * b_nu_los
+                step = w * half_length * density_funcs[label](x_helio)
+                temperature_weights[i, pixels] += step * (1 - fraction)
+                temperature_weights[i + 1, pixels] += step * fraction
             emissivity = np.array(
                 [m._interped_comp_params[label]["emissivity"] for m in self.models]
             )
-            result += emissivity[:, None] * column
+            result += emissivity[:, None] * (b_nu @ temperature_weights)
         return result.T
 
-    def evaluate(self, direction: np.ndarray, time_s: np.ndarray) -> np.ndarray:
-        """Zodiacal light along directions at the given times, (n, n_freq), MJy/sr."""
+    def evaluate(
+        self,
+        direction: np.ndarray,
+        time_s: np.ndarray,
+        block_directions: int = ZODI_BLOCK_DIRECTIONS,
+    ) -> np.ndarray:
+        """Zodiacal light along directions at the given times, (n, n_freq), MJy/sr.
+
+        The single-pass evaluation processes at most ``block_directions``
+        directions at a time, using about (100 + 2 n_freq) × 8 bytes each.
+        """
         from astropy.time import TimeDelta
 
         obstime = self.config.simulation.mission_start_time + TimeDelta(
@@ -465,8 +532,15 @@ class ZodiacalLight:
             obstime=obstime,
         )
         obspos = (self.orbit.heliocentric_position_km(time_s).T * u.km).to(u.AU)
-        if self._single_pass and direction.shape[0] > 1:
-            return self._single_pass_mjy_sr(coords, obspos.to_value(u.AU))
+        if self._single_pass:
+            obspos_au = obspos.to_value(u.AU)
+            blocks = np.array_split(
+                np.arange(direction.shape[0]),
+                max(1, -(-direction.shape[0] // block_directions)),
+            )
+            return np.concatenate(
+                [self._single_pass_mjy_sr(coords[b], obspos_au[:, b]) for b in blocks]
+            )
         result = np.empty((direction.shape[0], self.freq_ghz.size))
         for i, model in enumerate(self.models):
             emission = model.evaluate(

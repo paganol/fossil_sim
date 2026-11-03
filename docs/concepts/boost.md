@@ -27,6 +27,14 @@ fossil_sim applies this to the *sum* of all Isotropic backgrounds, which
 yields their monopole, dipole and all higher kinematic multipoles at once.
 Aberration does not affect an isotropic background.
 
+The observed spectrum depends on the IFG only through the scalar
+$f = \nu'/\nu$, which spans $|f - 1| \lesssim 1.3\times10^{-3}$. Within a
+block of IFGs the smooth backgrounds are evaluated at 12 Chebyshev nodes of
+$f$ over the block's range and interpolated to each IFG; the error,
+$\sim (1.3\times10^{-3}\,x/2)^{12}/12!$ relative for $x = h\nu/kT_0 \le 35$,
+is below rounding (measured $8\times10^{-15}$ against the direct evaluation).
+Extragalactic CO, a piecewise-linear template, is evaluated for each IFG.
+
 ## Blackbody case
 
 For a blackbody at $T_0$ the occupation number $1/(e^{h\nu'/kT_0} - 1)$ equals
