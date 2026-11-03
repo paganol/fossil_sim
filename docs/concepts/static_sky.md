@@ -43,8 +43,8 @@ $N_\mathrm{side}$ is available for quick runs.
 Since the Scans of a Ring retrace the same circle, the boresight of an IFG
 depends only on its Ring and its phase in the Scan. In the spectral domain the
 cubes are therefore sampled once per cycle on the $N_I$ IFG centres of each
-Ring circle and read back for every IFG: the result is identical to sampling
-each IFG, at $1/30$ of the cost at baseline.
+Ring circle and read back for every IFG: the result equals sampling each IFG
+within the synthesis accuracy, at $1/30$ of the cost at baseline.
 
 ## Doppler
 

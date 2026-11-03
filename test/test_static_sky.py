@@ -165,7 +165,8 @@ def test_ring_circles_match_sampling_per_ifg(config, orbit, tmp_path):
     model = SignalModel(cfg, orbit, sky)
     table = build_ifg_table(cfg, orbit, 3)[::97]  # every Ring and the Recycling window
     from_circles = model.sky_mjy_sr(table, circles=model.static_circles(3))
-    assert np.allclose(from_circles, model.sky_mjy_sr(table), rtol=1e-12, atol=0)
+    # equal within the synthesis accuracy (SYNTHESIS_EPSILON), bitwise on some platforms
+    assert np.allclose(from_circles, model.sky_mjy_sr(table), rtol=1e-9, atol=0)
 
 
 def test_forbidden_models_rejected(config):
