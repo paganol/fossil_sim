@@ -58,8 +58,9 @@ noise $\mathrm{NEP}/\sqrt{2\,\delta t}$ is added to the samples
 ({doc}`noise`) and the differential spectrum is recovered by the least squares
 above; the rest of the chain (sky estimate, maps, flags) is unchanged. The
 samples are equispaced in time, sample $j$ at $(j + \tfrac12)\,\delta t$, with
-the OPD linear in time from $-x_\mathrm{max}$ to $+x_\mathrm{max}$ (a
-placeholder mirror trajectory).
+the OPD linear in time between the first and last sample, at $-x_\mathrm{max}$
+and $+x_\mathrm{max}$; the mirror turns around in the half sample at each end
+of the IFG (a placeholder mirror trajectory).
 
 ### Sky during the IFG
 

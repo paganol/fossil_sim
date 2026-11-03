@@ -15,7 +15,9 @@ serve the IFG-domain simulation (``ifg.simulate``): the sky of each IFG is
 given on a short window of a fine grid of spin phase and interpolated to the
 sample times (:func:`sample_weights`), so that it can change during the IFG.
 Samples are equispaced in time, sample j at (j + ½) δt, with the OPD linear in
-time from −x_max to +x_max (TBD — placeholder mirror trajectory).
+time between the first and last sample, at −x_max and +x_max
+(:func:`opd_samples_m`): the mirror turns around in the half sample at each end
+of the IFG (TBD — placeholder mirror trajectory).
 """
 
 import numpy as np
