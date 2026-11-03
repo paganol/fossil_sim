@@ -36,6 +36,28 @@ def test_boost_of_blackbody_is_exact(config):
     assert np.allclose(observed, expected, rtol=1e-12, atol=0)
 
 
+def test_boost_interpolation_matches_direct_evaluation(config):
+    """Chebyshev interpolation in ν′/ν equals the direct evaluation, CO included."""
+    rng = np.random.default_rng(2)
+    direction = rng.normal(size=(2000, 3))
+    direction /= np.linalg.norm(direction, axis=1, keepdims=True)
+    velocity_km_s = solar_velocity_km_s(config.sky) + rng.normal(
+        scale=30, size=(2000, 3)
+    )
+    freq_ghz = np.arange(30.0, 2000.0, 15.0)
+    observed = boosted_isotropic_background_mjy_sr(
+        freq_ghz, direction, velocity_km_s, config.sky
+    )
+    beta = velocity_km_s / C_LIGHT_KM_S
+    factor = (1 - np.sum(beta * direction, axis=1)) / np.sqrt(
+        1 - np.sum(beta**2, axis=1)
+    )
+    expected = isotropic_background_mjy_sr(
+        freq_ghz[None, :] * factor[:, None], config.sky
+    ) / (factor[:, None] ** 3)
+    assert np.allclose(observed, expected, rtol=1e-13, atol=0)  # measured ~8e-15
+
+
 def test_no_velocity_gives_rest_frame(config):
     direction = np.array([[0.0, 0.0, 1.0], [1.0, 0.0, 0.0]])
     observed = boosted_isotropic_background_mjy_sr(

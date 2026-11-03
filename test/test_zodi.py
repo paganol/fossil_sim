@@ -56,3 +56,12 @@ def test_single_pass_matches_zodipy(config, orbit, zodi_and_table):
     direct = per_frequency.evaluate(rows["boresight"], rows["time_mid_s"])
     fast = zodi.evaluate(rows["boresight"], rows["time_mid_s"])
     assert np.allclose(fast, direct, rtol=1e-12, atol=0)
+
+
+def test_blocks_match_single_evaluation(zodi_and_table):
+    """Blocks of directions (any size, here unsorted in time) give the same result."""
+    zodi, table = zodi_and_table
+    rows = table[::401][::-1]
+    whole = zodi.evaluate(rows["boresight"], rows["time_mid_s"])
+    blocked = zodi.evaluate(rows["boresight"], rows["time_mid_s"], block_directions=7)
+    assert np.allclose(blocked, whole, rtol=1e-10, atol=0)
