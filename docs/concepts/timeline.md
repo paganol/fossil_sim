@@ -81,6 +81,10 @@ $d = \lceil \tau / \Delta t \rceil$ IFGs are flagged, with $\tau$ =
 `mode_switch_dead_time_s` (baseline 300 s, $d = 150$; 0 = instantaneous
 switch). The start of an observing period (mission start, end of Recycling)
 is not a switch: the BSMs are set during the Recycling window.
+If `recycling_scans = 0`, observing is continuous across Cooler cycles:
+switches at cycle boundaries and any dead time extending into the next cycle
+are flagged in the same way as switches within a cycle. Only mission start
+is exempt.
 
 ## Time budget
 

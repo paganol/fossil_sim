@@ -56,8 +56,8 @@ IFG_DTYPE = np.dtype(
         ("cycle_id", np.int32),
         ("ring_id", np.int32),  # -1 during the Recycling window
         ("scan_id", np.int32),
-        ("ring_in_cycle", np.int8),  # last Ring during the Recycling window
-        ("ifg_in_scan", np.int16),
+        ("ring_in_cycle", np.int64),  # last Ring during the Recycling window
+        ("ifg_in_scan", np.int64),
         ("boresight", np.float64, 3),  # unit vector, J2000 ecliptic
         ("mode", np.int8),  # index into config.MODES
         ("flags", np.uint8),
@@ -202,8 +202,8 @@ class SignalModel:
             else:
                 parts = circles[
                     :,
-                    table["ring_in_cycle"].astype(np.int64),
-                    table["ifg_in_scan"].astype(np.int64),
+                    table["ring_in_cycle"],
+                    table["ifg_in_scan"],
                 ]
             sky += parts[0]
             if len(parts) == 3:
@@ -236,11 +236,9 @@ class SignalModel:
             sky = self.sky_mjy_sr(table, zodi)
             return np.broadcast_to(sky[:, None], (sky.shape[0], n_window, sky.shape[1]))
         index = (
-            table["ifg_in_scan"].astype(np.int64)[:, None] * SKY_GRID_PER_IFG
-            - 1
-            + np.arange(n_window)
+            table["ifg_in_scan"][:, None] * SKY_GRID_PER_IFG - 1 + np.arange(n_window)
         ) % circles.shape[2]
-        parts = circles[:, table["ring_in_cycle"].astype(np.int64)[:, None], index]
+        parts = circles[:, table["ring_in_cycle"][:, None], index]
         sky = self.sky_mjy_sr(table, zodi, include_static=False)[:, None] + parts[0]
         if parts.shape[0] == 3:
             direction = table["boresight"]
@@ -322,15 +320,23 @@ class SignalModel:
         """
         port1, port2 = port_spectra_mjy_sr(sky_windows, bbir[:, :, None], table["mode"])
         m = self.config.noise.modulation_efficiency
+        freq_step_ghz = self.config.instrument.freq_step_ghz
         result = {}
         for du in self.dus:
             ifgs = du_interferograms(
-                self.freq_ghz, port1, port2, du, self.opd_m, self.sample_weights, m
+                self.freq_ghz,
+                port1,
+                port2,
+                du,
+                self.opd_m,
+                self.sample_weights,
+                m,
+                freq_step_ghz=freq_step_ghz,
             )
             if noise is not None:
                 ifgs += noise[du.name]
             result[du.name] = differential_spectra(
-                self.freq_ghz, ifgs, du, self.opd_m, m
+                self.freq_ghz, ifgs, du, self.opd_m, m, freq_step_ghz=freq_step_ghz
             )
         return result
 

@@ -3,6 +3,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from fossil_sim.operations import cycle_timeline
 from fossil_sim.orbit import L2Orbit
 from fossil_sim.simulation import build_ifg_table, run_simulation
 
@@ -12,6 +13,26 @@ def test_ifg_table(config, orbit):
     assert table.size == 87 * 720
     assert np.all(np.diff(table["time_mid_s"]) == 2.0)
     assert np.all(table["ring_id"][: 69 * 720] >= 0)
+
+
+@pytest.mark.parametrize("rings_per_cycle,ifgs_per_scan", [(129, 4), (1, 32769)])
+def test_ifg_table_preserves_large_local_indices(
+    config, orbit, rings_per_cycle, ifgs_per_scan
+):
+    cfg = replace(
+        config,
+        timeline=replace(
+            config.timeline,
+            rings_per_cycle=rings_per_cycle,
+            scans_per_ring=1,
+            ifgs_per_scan=ifgs_per_scan,
+            recycling_scans=0,
+        ),
+    )
+    timeline = cycle_timeline(cfg, 0)
+    table = build_ifg_table(cfg, orbit, 0)
+    np.testing.assert_array_equal(table["ring_in_cycle"], timeline.ring_in_cycle)
+    np.testing.assert_array_equal(table["ifg_in_scan"], timeline.ifg_in_scan)
 
 
 def test_short_run_statistics(config):

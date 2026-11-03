@@ -566,8 +566,8 @@ class ZodiacalLight:
         times_s = np.repeat(np.concatenate([start_s, end_s]), n_phase)
         values = self.evaluate(directions, times_s).reshape(2, n_rings, n_phase, -1)
 
-        ring = table["ring_in_cycle"].astype(np.int64)
-        phase = table["ifg_in_scan"].astype(np.int64)
+        ring = table["ring_in_cycle"]
+        phase = table["ifg_in_scan"]
         weight = (table["time_mid_s"] - start_s[ring]) / (end_s[ring] - start_s[ring])
         first, last = values[0, ring, phase], values[1, ring, phase]
         return first + weight[:, None] * (last - first)

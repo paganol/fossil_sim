@@ -150,3 +150,34 @@ def test_mode_sky_ports():
     port1, port2 = mode_sky_ports(codes)
     assert port1.tolist() == [False, False, True, True]
     assert port2.tolist() == [False, True, False, True]
+
+
+@pytest.mark.parametrize("interval_s,dead_time_s", [(8.0, 4.0), (10.0, 8.0)])
+@pytest.mark.parametrize("pattern", [("B10", "B01"), ("B10",)])
+def test_no_recycling_keeps_mode_switch_flags_continuous(
+    config, interval_s, dead_time_s, pattern
+):
+    cfg = replace(
+        config,
+        timeline=replace(
+            config.timeline,
+            ifgs_per_scan=4,
+            scans_per_ring=1,
+            rings_per_cycle=2,
+            recycling_scans=0,
+        ),
+        operations=replace(
+            config.operations,
+            mode_switch_interval_s=interval_s,
+            mode_switch_dead_time_s=dead_time_s,
+            mode_pattern=pattern,
+        ),
+    )
+    cycles = [operation_flags(cfg, cycle_timeline(cfg, c)) for c in range(4)]
+    modes = np.concatenate([m for m, _ in cycles])
+    flags = np.concatenate([f for _, f in cycles])
+    expected = np.zeros(modes.size, dtype=np.uint8)
+    dead_ifgs = int(np.ceil(dead_time_s / cfg.timeline.ifg_duration_s))
+    for switch in np.flatnonzero(modes[1:] != modes[:-1]) + 1:
+        expected[switch : switch + dead_ifgs] |= FLAG_MODE_SWITCH
+    np.testing.assert_array_equal(flags, expected)

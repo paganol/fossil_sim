@@ -4,9 +4,18 @@ import healpy as hp
 import numpy as np
 import pytest
 
-from fossil_sim.ifg import differential_spectrum, interferogram, opd_samples_m
+from fossil_sim.ifg import (
+    differential_spectra,
+    differential_spectrum,
+    interferogram,
+    opd_samples_m,
+)
 from fossil_sim.instrument import detector_units, frequency_grid_ghz
-from fossil_sim.noise import du_noise_mjy_sr, noise_sigma_mjy_sr
+from fossil_sim.noise import (
+    du_noise_mjy_sr,
+    noise_sigma_mjy_sr,
+    sky_estimate_noise_variance,
+)
 from fossil_sim.simulation import run_simulation
 
 
@@ -86,3 +95,39 @@ def test_noise_map_matches_variance_map(config):
     chi = residual / np.sqrt(noisy.sky_variance_map(64)[:, seen])
     assert chi.std() == pytest.approx(1.0, rel=0.02)
     assert np.all(noisy.sky_variance_map(64)[:, ~seen] == hp.UNSEEN)
+
+
+@pytest.mark.parametrize("samples_per_ifg", [268, 512])
+@pytest.mark.parametrize("modulation_efficiency", [0.25, 1.0])
+def test_ifg_variance_propagates_sample_noise(
+    config, samples_per_ifg, modulation_efficiency
+):
+    cfg = replace(
+        config,
+        ifg=replace(config.ifg, simulate=True, samples_per_ifg=samples_per_ifg),
+        noise=replace(config.noise, modulation_efficiency=modulation_efficiency),
+    )
+    freq_ghz = frequency_grid_ghz(cfg.instrument)
+    dus = detector_units(cfg.instrument)
+    opd_m = opd_samples_m(cfg.ifg)
+    variance = sky_estimate_noise_variance(cfg, freq_ghz, dus)
+    # Responses to unit impulses give the exact covariance of the real fit.
+    # Compute sample noise directly from NEP, independently of the map formula.
+    nc = cfg.noise
+    w_per_unit = (
+        nc.etendue_cm2_sr * 1e-4 * nc.absorptivity * nc.optical_efficiency * 1e-11
+    )
+    for du in dus[:2]:  # L and R have identical noise and opposite sky signs
+        nep = nc.nep_lf_w_sqrt_hz if du.name.startswith("LF") else nc.nep_hf_w_sqrt_hz
+        sigma_sample = (
+            nep
+            / np.sqrt(2 * cfg.timeline.ifg_duration_s / samples_per_ifg)
+            / w_per_unit
+        )
+        responses = differential_spectra(
+            freq_ghz, np.eye(samples_per_ifg), du, opd_m, modulation_efficiency
+        )
+        expected = sigma_sample**2 * np.sum(responses**2, axis=0) / 2
+        np.testing.assert_allclose(
+            variance[du.band_mask(freq_ghz)], expected, rtol=1e-12
+        )

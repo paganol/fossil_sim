@@ -17,6 +17,9 @@ physics and the mission design.
   (half-Ring Mode blocks).
 - Time lost: 20.69 % in Recycling windows, 0.72 % in mode switches
   (half-Ring Mode blocks, 300 s dead time).
+- With zero Recycling duration, Mode switches and unfinished dead times are
+  flagged continuously across Cooler-cycle boundaries; no-switch patterns
+  remain unflagged. Local indices survive 129 Rings and 32769 IFGs per Scan.
 
 ## Orbit and frames
 
@@ -44,6 +47,9 @@ physics and the mission design.
 - Static sky with real pysm3 models: dust dominates at THz on the Galactic
   plane (optional test).
 - Ideal-FTS interferogram round trip exact; L + R constant.
+- Single-bin spectra in either DU band give the same noiseless result in
+  the IFG and spectral domains; standalone interferograms use the supplied
+  bin width for both synthesis and recovery.
 - IFG-domain simulation: without sky change and noise equal to the spectral
   domain to $10^{-9}$; the Ring-circle grid with cubic interpolation equal to
   the Static sky at each sample direction to $10^{-4}$ of a beam-size source,
@@ -52,6 +58,9 @@ physics and the mission design.
   noise recovers the spectral noise level to 3 % (the least-squares factor of
   every band bin within 1 % of nominal), and its realization does not depend
   on how the cycle is split in blocks.
+- IFG-domain sky variance equals the propagated covariance of independent
+  sample noise for 268 and 512 samples, at modulation efficiencies 1 and
+  1/4, including the HF bins near Nyquist.
 - Noise: per-IFG level equal to the PIXIE formula; realizations reproducible
   and keyed by cycle; Recycling IFGs × `recycling_noise_factor`; (noisy −
   noiseless) sky map normalized by the variance map has unit standard

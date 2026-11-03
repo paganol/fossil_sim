@@ -167,14 +167,19 @@ def operation_flags(
     After a Mode switch within an observing period the first
     :func:`mode_switch_dead_ifgs` IFGs are flagged. The start of an observing
     period (mission start, end of Recycling) needs no switch: the BSMs are
-    set during the Recycling window.
+    set during the Recycling window. With no Recycling, the observing period
+    spans all cycles, including any unfinished switch dead time.
     """
     mode = ifg_modes(config, timeline)
     block, offset = _mode_blocks(config, timeline)
     pattern = _mode_pattern(config)
-    local_ifg = timeline.ifg_index - timeline.cycle_id * config.timeline.ifgs_per_cycle
-    # the block started inside this observing period, not at its start
-    started_here = local_ifg - offset > 0
+    period_start_ifg = (
+        timeline.cycle_id * config.timeline.ifgs_per_cycle
+        if config.timeline.recycling_scans > 0
+        else 0
+    )
+    # Ignore a switch only if its block began at/before the observing period.
+    started_here = timeline.ifg_index - offset > period_start_ifg
     switched = started_here & (
         pattern[block % pattern.size] != pattern[(block - 1) % pattern.size]
     )
