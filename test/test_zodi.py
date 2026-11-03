@@ -44,3 +44,15 @@ def test_disabled_zodi(config, orbit):
 
     cfg = replace(config, zodi=replace(config.zodi, enabled=False))
     assert SignalModel(cfg, orbit).zodi_for_cycle(0, None) is None
+
+
+def test_single_pass_matches_zodipy(config, orbit, zodi_and_table):
+    """All frequencies in one line-of-sight pass equal one zodipy call per frequency."""
+    zodi, table = zodi_and_table
+    rows = table[::997]
+    per_frequency = ZodiacalLight(config, orbit, FREQ_GHZ)
+    assert zodi._single_pass
+    per_frequency._single_pass = False
+    direct = per_frequency.evaluate(rows["boresight"], rows["time_mid_s"])
+    fast = zodi.evaluate(rows["boresight"], rows["time_mid_s"])
+    assert np.allclose(fast, direct, rtol=1e-12, atol=0)

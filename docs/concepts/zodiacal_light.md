@@ -34,8 +34,17 @@ I_\mathrm{zodi}(\nu, i) = I_\mathrm{zodi}(\nu, \hat{\mathbf b}_k, t_r^a)
 + \frac{t_i - t_r^a}{t_r^b - t_r^a}\left[I_\mathrm{zodi}(\nu, \hat{\mathbf b}_k, t_r^b) - I_\mathrm{zodi}(\nu, \hat{\mathbf b}_k, t_r^a)\right].
 $$
 
-This reduces the cost to about 11 s per cycle; the interpolation error,
+This reduces the cost to about 11 s per cycle (about 1 s with the single
+pass below); the interpolation error,
 measured against the direct evaluation in the middle of a Ring, is below
 $2\times10^{-5}$ of the signal. The zodiacal light is smooth on the scale of
 the beam, which is not applied; the Doppler effect of the dust motion is not
 modelled.
+
+zodipy is called once per frequency, and each call recomputes the
+frequency-independent dust density along the lines of sight. For the
+`planck18` model (thermal emission only) fossil_sim instead runs zodipy's
+quadrature once for all frequencies, computing density and grain temperature
+once per point; the result equals the per-frequency zodipy calls to rounding
+(test in `test/test_zodi.py`). It uses zodipy 1.1 private attributes, and
+other models fall back to the per-frequency calls.

@@ -11,7 +11,7 @@ v0.1.3: zodiacal light from zodipy, seen from the spacecraft position.
 
 v0.1.2: the Static sky, following the design of litebird_sim's
 ``SkyGenerator``: pysm3 maps per frequency -> alm, Gaussian beam, rotation to
-the J2000 ecliptic, cached on disk, sampled per IFG with
+the J2000 ecliptic, cached on disk, sampled along the Ring circles with
 ``ducc0.sht.synthesis_general``. Galactic models are defined in the
 barycentric frame and receive the first-order orbital Doppler term; CMB
 anisotropies and extragalactic models are defined in the CMB rest frame and
@@ -369,6 +369,7 @@ class ZodiacalLight:
 
     def __init__(self, config: Config, orbit, freq_ghz: np.ndarray) -> None:
         import zodipy
+        from zodipy.brightness import kelsall_brightness_at_step
 
         self.config = config
         self.orbit = orbit
@@ -383,6 +384,70 @@ class ZodiacalLight:
             )
             for f in self.freq_ghz
         ]
+        reference = self.models[0]
+        self._single_pass = all(
+            m._ipd_model.brightness_at_step_callable is kelsall_brightness_at_step
+            and m._interped_shared_params == reference._interped_shared_params
+            and all(p["albedo"] == 0 for p in m._interped_comp_params.values())
+            for m in self.models
+        )
+
+    def _single_pass_mjy_sr(self, coords: SkyCoord, obspos_au: np.ndarray):
+        """Thermal emission at all frequencies in one line-of-sight pass, (n, n_freq).
+
+        Same quadrature as ``zodipy.Model._evaluate`` (zodipy 1.1, private
+        API), for Kelsall-type models without scattering (planck18): number
+        density and grain temperature, independent of frequency, are computed
+        once instead of once per frequency. Equal to :meth:`zodipy.Model.evaluate`
+        to rounding (test_zodi).
+        """
+        from zodipy.blackbody import TEMPERATURES
+        from zodipy.bodies import arrange_obstimes, get_interp_bodypos
+        from zodipy.line_of_sight import get_line_of_sight_range
+        from zodipy.number_density import update_partial_earth_pos
+
+        reference = self.models[0]
+        obstime = coords.obstime
+        earth_au = get_interp_bodypos(
+            body="earth",
+            obstimes=obstime.mjd,
+            interp_obstimes=arrange_obstimes(obstime[0].mjd, obstime[-1].mjd),
+            ephemeris=reference._ephemeris,
+        )
+        u_los = coords.transform_to(BarycentricMeanEcliptic).cartesian.xyz.value
+        start, stop = get_line_of_sight_range(
+            reference._ipd_model.comps.keys(), u_los, obspos_au
+        )
+        density_funcs = update_partial_earth_pos(
+            reference._number_density_partials, earth_pos=earth_au
+        )
+        t_0 = reference._interped_shared_params["T_0"]
+        delta = reference._interped_shared_params["delta"]
+        b_nu = np.stack([m._b_nu_table[1] for m in self.models])  # (n_freq, n_temp)
+        points, weights = np.polynomial.legendre.leggauss(
+            self.config.zodi.gauss_quad_degree
+        )
+        result = np.zeros((self.freq_ghz.size, u_los.shape[1]))
+        for label in reference._ipd_model.comps:
+            half_length = 0.5 * (stop[label] - start[label])
+            middle = 0.5 * (stop[label] + start[label])
+            column = np.zeros_like(result)
+            for r, w in zip(points, weights, strict=True):
+                x_helio = (half_length * r + middle) * u_los + obspos_au
+                r_helio = np.sqrt(np.sum(x_helio**2, axis=0))
+                # linear interpolation of the tabulated B_ν(T), as np.interp
+                position = np.interp(
+                    t_0 * r_helio**-delta, TEMPERATURES, np.arange(TEMPERATURES.size)
+                )
+                i = np.minimum(position.astype(np.int64), TEMPERATURES.size - 2)
+                fraction = position - i
+                b_nu_los = b_nu[:, i] * (1 - fraction) + b_nu[:, i + 1] * fraction
+                column += (w * half_length * density_funcs[label](x_helio)) * b_nu_los
+            emissivity = np.array(
+                [m._interped_comp_params[label]["emissivity"] for m in self.models]
+            )
+            result += emissivity[:, None] * column
+        return result.T
 
     def evaluate(self, direction: np.ndarray, time_s: np.ndarray) -> np.ndarray:
         """Zodiacal light along directions at the given times, (n, n_freq), MJy/sr."""
@@ -400,6 +465,8 @@ class ZodiacalLight:
             obstime=obstime,
         )
         obspos = (self.orbit.heliocentric_position_km(time_s).T * u.km).to(u.AU)
+        if self._single_pass and direction.shape[0] > 1:
+            return self._single_pass_mjy_sr(coords, obspos.to_value(u.AU))
         result = np.empty((direction.shape[0], self.freq_ghz.size))
         for i, model in enumerate(self.models):
             emission = model.evaluate(
