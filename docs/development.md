@@ -7,6 +7,7 @@ bibliography.
 :maxdepth: 1
 
 validation
+changelog
 adr/index
 references
 ```
