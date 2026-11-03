@@ -18,6 +18,7 @@ Notebooks: [scanning](notebooks/fossil_sim_scanning.ipynb),
 [spectral maps](notebooks/fossil_sim_spectral_maps.ipynb).
 
 - Documentation: https://fossil-sim.readthedocs.io (sources in `docs/`)
+- Release history: [CHANGELOG.md](CHANGELOG.md)
 - Domain language: [CONTEXT.md](CONTEXT.md)
 - Design decisions: [docs/adr](docs/adr)
 
