@@ -322,7 +322,10 @@ def validate(config: Config) -> None:
     if config.ifg.opd_per_mirror_position <= 0 or config.ifg.max_opd_m <= 0:
         raise ValueError("ifg: max_opd_m and opd_per_mirror_position must be > 0")
     opd_step_m = 2 * config.ifg.max_opd_m / max(config.ifg.samples_per_ifg - 1, 1)
-    if opd_step_m * config.instrument.freq_max_ghz * 1e9 > 0.5 * C_LIGHT_M_S:
+    if (
+        config.ifg.simulate
+        and opd_step_m * config.instrument.freq_max_ghz * 1e9 > 0.5 * C_LIGHT_M_S
+    ):
         raise ValueError(
             "ifg.samples_per_ifg too few to sample instrument.freq_max_ghz"
         )

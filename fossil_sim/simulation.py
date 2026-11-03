@@ -23,12 +23,7 @@ from .input_sky import (
 )
 from .instrument import detector_units, frequency_grid_ghz
 from .mapmaking import DIAGNOSTIC_OUTPUTS, HitMaps, SpectralMaps
-from .noise import (
-    du_noise_mjy_sr,
-    ifg_noise_rng,
-    sample_noise_sigma,
-    sky_estimate_noise_variance,
-)
+from .noise import SampleNoise, du_noise_mjy_sr, sky_estimate_noise_variance
 from .operations import (
     FLAG_NAMES,
     FLAG_SAA_EXCEEDED,
@@ -240,20 +235,20 @@ class SignalModel:
 
     def noise_for_cycle(
         self, cycle_id: int, table: np.ndarray
-    ) -> dict[str, np.ndarray] | dict[str, np.random.Generator] | None:
+    ) -> dict[str, np.ndarray] | dict[str, SampleNoise] | None:
         """White noise of each DU over a whole cycle, or None if disabled.
 
-        With ``ifg.simulate``: one generator of sample noise per DU, drawn
-        block by block by :meth:`compute`.
+        With ``ifg.simulate``: noise on the IFG samples, drawn when sliced
+        (:class:`fossil_sim.noise.SampleNoise`).
         """
         if not self.config.noise.enabled:
             return None
+        in_recycling = table["ring_id"] == -1
         if self.config.ifg.simulate:
             return {
-                du.name: ifg_noise_rng(self.config, i, cycle_id)
+                du.name: SampleNoise(self.config, du, i, cycle_id, in_recycling)
                 for i, du in enumerate(self.dus)
             }
-        in_recycling = table["ring_id"] == -1
         return {
             du.name: du_noise_mjy_sr(
                 self.config,
@@ -275,9 +270,10 @@ class SignalModel:
     ) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray]:
         """DU differential spectra, sky estimate and BBIR spectra for a block of IFGs.
 
-        ``noise`` (from :meth:`noise_for_cycle`) is added to the DU spectra,
-        or to the IFG samples with ``ifg.simulate``, hence propagated to the
-        sky estimate. ``circles`` comes from :meth:`static_circles`.
+        ``noise`` (from :meth:`noise_for_cycle`, sliced to the block) is added
+        to the DU spectra, or to the IFG samples with ``ifg.simulate``, hence
+        propagated to the sky estimate. ``circles`` comes from
+        :meth:`static_circles`.
         """
         bbir = bbir_spectra_mjy_sr(self.freq_ghz, table["bbir_port_temperature_k"])
         if self.config.ifg.simulate:
@@ -300,22 +296,21 @@ class SignalModel:
         table: np.ndarray,
         sky_windows: np.ndarray,
         bbir: np.ndarray,
-        noise: dict[str, np.random.Generator] | None = None,
+        noise: dict[str, np.ndarray] | None = None,
     ) -> dict[str, np.ndarray]:
-        """DU differential spectra recovered from simulated interferograms."""
+        """DU differential spectra recovered from simulated interferograms.
+
+        ``noise`` holds the sample noise of each DU, (n_ifg, samples_per_ifg).
+        """
         port1, port2 = port_spectra_mjy_sr(sky_windows, bbir[:, :, None], table["mode"])
         m = self.config.noise.modulation_efficiency
-        recycling_scale = np.where(
-            table["ring_id"] == -1, self.config.noise.recycling_noise_factor, 1.0
-        )
         result = {}
         for du in self.dus:
             ifgs = du_interferograms(
                 self.freq_ghz, port1, port2, du, self.opd_m, self.sample_weights, m
             )
             if noise is not None:
-                sigma = sample_noise_sigma(self.config, du) * recycling_scale
-                ifgs += noise[du.name].standard_normal(ifgs.shape) * sigma[:, None]
+                ifgs += noise[du.name]
             result[du.name] = differential_spectra(
                 self.freq_ghz, ifgs, du, self.opd_m, m
             )
@@ -487,9 +482,7 @@ def _process_signal(config, model, table, spectral_maps, cycle_id, output_dir) -
         block = table[chunk]
         block_zodi = None if zodi is None else zodi[chunk]
         block_noise = (
-            noise  # None, or generators drawn block by block (ifg.simulate)
-            if noise is None or config.ifg.simulate
-            else {name: n[chunk] for name, n in noise.items()}
+            None if noise is None else {name: n[chunk] for name, n in noise.items()}
         )
         du_spectra, estimate, _ = model.compute(block, block_zodi, block_noise, circles)
         if config.output.save_tod:

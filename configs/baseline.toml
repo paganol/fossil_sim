@@ -147,7 +147,7 @@ save_tod = false                          # one HDF5 file per Cooler cycle when 
 [ifg]
 # Ideal-FTS interferogram, modulation cos(2π ν x / c)
 # with x the optical path difference (OPD): spectral resolution c / (2 x_max),
-# Nyquist sampling of ν_max needs an OPD step <= c / (2 ν_max).
+# Nyquist sampling of ν_max needs an OPD step <= c / (2 ν_max) (checked with simulate).
 max_opd_m = 0.01                          # TBD — placeholder: c / (2 × 15 GHz), matches freq_step_ghz
 samples_per_ifg = 512                     # TBD — placeholder: symmetric scan −x_max..+x_max,
                                           # step 39 µm < c / (2 × 2000 GHz) = 75 µm

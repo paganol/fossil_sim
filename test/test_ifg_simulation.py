@@ -3,8 +3,9 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from fossil_sim.ifg import sample_weights
-from fossil_sim.noise import noise_sigma_mjy_sr
+from fossil_sim.ifg import modulation_matrix, sample_weights
+from fossil_sim.instrument import detector_units
+from fossil_sim.noise import SampleNoise, noise_sigma_mjy_sr
 from fossil_sim.scanning import ring_circles, ring_spin_axes
 from fossil_sim.simulation import SignalModel, build_ifg_table
 
@@ -117,10 +118,45 @@ def test_sample_noise_gives_the_spectral_noise_level(config, orbit, table):
     rows = np.resize(table[:40], 400)  # science IFGs (B10, B01)
     noiseless = SignalModel(ifg_config(config, sky_variation=False), orbit, None)
     clean = noiseless.compute(rows)[0]
-    noisy = model.compute(rows, noise=model.noise_for_cycle(0, rows))[0]
+    noise = {name: n[:] for name, n in model.noise_for_cycle(0, rows).items()}
+    noisy = model.compute(rows, noise=noise)[0]
     for du in model.dus:
         ratio = (noisy[du.name] - clean[du.name]) / noise_sigma_mjy_sr(cfg, du)
         assert np.std(ratio) == pytest.approx(1.0, abs=0.03)
+
+
+def test_sample_noise_does_not_depend_on_slicing(config):
+    cfg = ifg_config(config, noise=True)
+    in_recycling = np.zeros(1000, dtype=bool)
+    in_recycling[-100:] = True
+    noise = SampleNoise(cfg, detector_units(cfg.instrument)[0], 0, 3, in_recycling)
+    whole = noise[:]
+    assert whole.shape == (1000, cfg.ifg.samples_per_ifg)
+    # other block sizes, any order, repeated calls: same rows
+    blocks = {start: noise[start : start + 300] for start in (900, 0, 300, 600)}
+    assert np.array_equal(np.concatenate([blocks[s] for s in sorted(blocks)]), whole)
+    assert np.array_equal(noise[123:457], whole[123:457])
+    assert noise[5:5].shape == (0, cfg.ifg.samples_per_ifg)
+    # Recycling rows carry recycling_noise_factor
+    ratio = whole[-100:].std() / whole[:-100].std()
+    assert ratio == pytest.approx(cfg.noise.recycling_noise_factor, rel=0.02)
+
+
+def test_fit_noise_per_bin_matches_nominal(config, orbit):
+    """Least-squares noise of every band bin within 1% of noise_sigma_mjy_sr.
+
+    The sample sigma assumes orthogonal cosines (variance 2 σ² / N); the
+    constant term and the end samples make the exact factor bin dependent.
+    """
+    model = SignalModel(ifg_config(config), orbit, None)
+    n = model.opd_m.size
+    for du in model.dus:
+        cosines = modulation_matrix(
+            model.freq_ghz[du.band_mask(model.freq_ghz)], model.opd_m
+        )
+        design = np.column_stack([np.ones(n), cosines])
+        factor = np.sqrt((np.linalg.pinv(design)[1:] ** 2).sum(axis=1) * n / 2)
+        assert np.abs(factor - 1).max() < 0.01
 
 
 def test_ifg_matches_sample_by_sample_evaluation(config, orbit, table):

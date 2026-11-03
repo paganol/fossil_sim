@@ -25,7 +25,8 @@ MPI rank (ADR 0001).
 
 With ``ifg.simulate`` the noise is drawn instead on the IFG samples,
 :func:`sample_noise_sigma`, and reaches the spectrum through the least-squares
-fit; a cycle is one stream per DU, drawn block by block in time order.
+fit; it is drawn lazily per block (:class:`SampleNoise`), keyed by (component,
+cycle, DU, chunk of IFGs).
 """
 
 import numpy as np
@@ -36,6 +37,8 @@ from .instrument import DetectorUnit
 # First entry of the SeedSequence key, separating noise from future components
 NOISE_COMPONENT_ID = 1
 IFG_NOISE_COMPONENT_ID = 2
+# IFGs per seed of the sample noise (fixes the realization: do not change)
+SAMPLE_NOISE_CHUNK_IFGS = 256
 
 # 1 MJy/sr = 1e-20 W m⁻² Hz⁻¹ sr⁻¹
 SI_TO_MJY_SR = 1e20
@@ -72,12 +75,55 @@ def sample_noise_sigma(config: Config, du: DetectorUnit) -> float:
     )
 
 
-def ifg_noise_rng(config: Config, du_index: int, cycle_id: int) -> np.random.Generator:
-    """Generator of the sample noise of one DU over a Cooler cycle."""
-    seed = np.random.SeedSequence(
-        [config.simulation.master_seed, IFG_NOISE_COMPONENT_ID, cycle_id, du_index]
-    )
-    return np.random.default_rng(seed)
+class SampleNoise:
+    """Sample noise of one DU over a Cooler cycle, (n_ifg, samples_per_ifg).
+
+    Sliced like the array it stands for (``noise[start:stop]``), without
+    holding it: rows are drawn in chunks of ``SAMPLE_NOISE_CHUNK_IFGS``, each
+    from its own seed, so an IFG gets the same realization whatever the slicing
+    and the order of the calls. As for :func:`du_noise_mjy_sr`, the row index
+    is the position in the cycle table.
+    """
+
+    def __init__(
+        self,
+        config: Config,
+        du: DetectorUnit,
+        du_index: int,
+        cycle_id: int,
+        in_recycling: np.ndarray,
+    ):
+        self.key = [
+            config.simulation.master_seed,
+            IFG_NOISE_COMPONENT_ID,
+            cycle_id,
+            du_index,
+        ]
+        self.samples_per_ifg = config.ifg.samples_per_ifg
+        self.sigma = sample_noise_sigma(config, du) * np.where(
+            in_recycling, config.noise.recycling_noise_factor, 1.0
+        )
+
+    def __len__(self) -> int:
+        return self.sigma.size
+
+    def __getitem__(self, rows: slice) -> np.ndarray:
+        start, stop, step = rows.indices(len(self))
+        if step != 1:
+            raise ValueError("SampleNoise supports contiguous slices only")
+        if stop <= start:
+            return np.empty((0, self.samples_per_ifg))
+        size = SAMPLE_NOISE_CHUNK_IFGS
+        first, last = start // size, (stop - 1) // size + 1
+        noise = np.concatenate(
+            [
+                np.random.default_rng(
+                    np.random.SeedSequence(self.key + [chunk])
+                ).standard_normal((size, self.samples_per_ifg))
+                for chunk in range(first, last)
+            ]
+        )[start - first * size : stop - first * size]
+        return noise * self.sigma[start:stop, None]
 
 
 def du_noise_mjy_sr(

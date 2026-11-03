@@ -49,7 +49,9 @@ physics and the mission design.
   the Static sky at each sample direction to $10^{-4}$ of a beam-size source,
   and the IFG equal to a sample-by-sample evaluation to $3\times10^{-3}$ of
   the sky-change effect; a sky linear in time during the IFG cancels; sample
-  noise recovers the spectral noise level to 3 %.
+  noise recovers the spectral noise level to 3 % (the least-squares factor of
+  every band bin within 1 % of nominal), and its realization does not depend
+  on how the cycle is split in blocks.
 - Noise: per-IFG level equal to the PIXIE formula; realizations reproducible
   and keyed by cycle; Recycling IFGs × `recycling_noise_factor`; (noisy −
   noiseless) sky map normalized by the variance map has unit standard

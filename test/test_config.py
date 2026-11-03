@@ -51,7 +51,6 @@ def test_hash_is_stable_and_content_based():
         ("instrument", "dichroic_split_ghz", 2500.0),
         ("maps", "nsides", [64, 100]),
         ("ifg", "max_opd_m", 0.005),
-        ("ifg", "samples_per_ifg", 200),  # OPD step above Nyquist at 2 THz
         ("noise", "modulation_efficiency", 1.5),
     ],
 )
@@ -59,6 +58,15 @@ def test_invalid_values_are_rejected(section, key, value):
     values = baseline_dict()
     values[section][key] = value
     with pytest.raises(ValueError):
+        config_from_dict(values)
+
+
+def test_ifg_nyquist_is_checked_only_when_simulated():
+    values = baseline_dict()
+    values["ifg"]["samples_per_ifg"] = 200  # OPD step above Nyquist at 2 THz
+    config_from_dict(values)  # spectral domain: samples_per_ifg unused
+    values["ifg"]["simulate"] = True
+    with pytest.raises(ValueError, match="samples_per_ifg"):
         config_from_dict(values)
 
 
