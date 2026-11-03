@@ -6,7 +6,8 @@ import pytest
 
 from fossil_sim.config import config_from_dict
 from fossil_sim.input_sky import StaticSky, static_doppler_mjy_sr
-from fossil_sim.simulation import SignalModel
+from fossil_sim.instrument import frequency_grid_ghz
+from fossil_sim.simulation import SignalModel, build_ifg_table
 
 FREQ_GHZ = np.array([100.0, 200.0, 400.0])
 NSIDE = 16
@@ -146,6 +147,26 @@ def test_doppler_velocities_per_frame(config, orbit, tmp_path):
         model.static_sky = OnlyDoppler(part)
         expected = static_doppler_mjy_sr(np.ones((4, 2)), table["boresight"], velocity)
         assert np.allclose(model.sky_mjy_sr(table), expected, rtol=1e-12, atol=0)
+
+
+def test_ring_circles_match_sampling_per_ifg(config, orbit, tmp_path):
+    """Spectral domain: Static sky read from the Ring circles = sampled at every IFG."""
+    cfg = replace(
+        config,
+        static_sky=small_config(config.static_sky, tmp_path),
+        zodi=replace(config.zodi, enabled=False),
+    )
+    sky = StaticSky(
+        cfg.static_sky,
+        frequency_grid_ghz(cfg.instrument),
+        1.6,
+        emission=synthetic_emission(cosmological=1.0),
+    )
+    model = SignalModel(cfg, orbit, sky)
+    table = build_ifg_table(cfg, orbit, 3)[::97]  # every Ring and the Recycling window
+    from_circles = model.sky_mjy_sr(table, circles=model.static_circles(3))
+    # equal within the synthesis accuracy (SYNTHESIS_EPSILON), bitwise on some platforms
+    assert np.allclose(from_circles, model.sky_mjy_sr(table), rtol=1e-9, atol=0)
 
 
 def test_forbidden_models_rejected(config):

@@ -146,18 +146,25 @@ class SignalModel:
         return self.zodi.for_cycle(cycle_id, axes, table)
 
     def static_circles(self, cycle_id: int) -> np.ndarray | None:
-        """Static sky on a fine grid of spin phase along each Ring of a cycle.
+        """Static sky along the circle of each Ring of a cycle, shared by its Scans.
 
-        Shape (n_parts, n_rings, SKY_GRID_PER_IFG × ifgs_per_scan, n_freq):
-        I, then the barycentric and cosmological K when ``static_sky.doppler``;
-        grid point g at spin phase 2π g / n_grid. None unless the IFG-domain
-        simulation follows the sky during the IFG.
+        Shape (n_parts, n_rings, n_points, n_freq): I, then the barycentric
+        and cosmological K when ``static_sky.doppler``. Spectral domain: the
+        IFG centres (n_points = ifgs_per_scan), for :meth:`sky_mjy_sr`. IFG
+        domain following the sky during the IFG: a fine grid of
+        SKY_GRID_PER_IFG × ifgs_per_scan points, point g at spin phase
+        2π g / n_points, for :meth:`sky_windows`. None otherwise.
         """
         ifg = self.config.ifg
-        if not (ifg.simulate and ifg.sky_variation) or self.static_sky is None:
+        if self.static_sky is None or (ifg.simulate and not ifg.sky_variation):
             return None
         axes = ring_spin_axes(self.config, self.orbit, cycle_id)
-        circles = ring_circles(self.config, axes, SKY_GRID_PER_IFG, phase_offset=0.0)
+        if ifg.simulate:
+            circles = ring_circles(
+                self.config, axes, SKY_GRID_PER_IFG, phase_offset=0.0
+            )
+        else:
+            circles = ring_circles(self.config, axes)
         direction = circles.reshape(-1, 3)
         parts = [self.static_sky.sample(direction)]
         if self.config.static_sky.doppler:
@@ -169,11 +176,14 @@ class SignalModel:
         table: np.ndarray,
         zodi: np.ndarray | None = None,
         include_static: bool = True,
+        circles: np.ndarray | None = None,
     ) -> np.ndarray:
         """Total sky along the boresight, (n, n_freq).
 
         Isotropic backgrounds (boosted) + Static sky (with first-order Doppler) +
         zodiacal light (precomputed for the block, see :meth:`zodi_for_cycle`).
+        The Static sky is read from ``circles`` (:meth:`static_circles`, IFG
+        centres) when given, else sampled along each boresight.
         """
         direction = table["boresight"]
         orbital_km_s = self.orbit.position_velocity(table["time_mid_s"])[1]
@@ -185,12 +195,20 @@ class SignalModel:
             self.beam_factor,
         )
         if self.static_sky is not None and include_static:
-            sky += self.static_sky.sample(direction)
-            if self.config.static_sky.doppler:
+            if circles is None:
+                parts = [self.static_sky.sample(direction)]
+                if self.config.static_sky.doppler:
+                    parts += self.static_sky.sample_doppler(direction)
+            else:
+                parts = circles[
+                    :,
+                    table["ring_in_cycle"].astype(np.int64),
+                    table["ifg_in_scan"].astype(np.int64),
+                ]
+            sky += parts[0]
+            if len(parts) == 3:
                 # Galactic part: barycentric frame; cosmological part: CMB frame
-                k_barycentric, k_cosmological = self.static_sky.sample_doppler(
-                    direction
-                )
+                k_barycentric, k_cosmological = parts[1], parts[2]
                 sky += static_doppler_mjy_sr(k_barycentric, direction, orbital_km_s)
                 sky += static_doppler_mjy_sr(
                     k_cosmological, direction, self.solar_velocity_km_s + orbital_km_s
@@ -281,7 +299,7 @@ class SignalModel:
                 table, self.sky_windows(table, zodi, circles), bbir, noise
             )
         else:
-            sky = self.sky_mjy_sr(table, zodi)
+            sky = self.sky_mjy_sr(table, zodi, circles=circles)
             port1, port2 = port_spectra_mjy_sr(sky, bbir, table["mode"])
             du_spectra = du_differential_spectra(self.freq_ghz, port1, port2, self.dus)
             if noise is not None:
