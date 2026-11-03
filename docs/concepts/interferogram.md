@@ -51,6 +51,12 @@ With the grid matched to the scan ($x_\mathrm{max} = c / 2\Delta\nu$) the
 cosines are close to orthogonal and the recovery is exact for a noiseless,
 band-limited input.
 
+The interferogram and recovery functions accept an optional `freq_step_ghz`
+bin width. It defaults to the spacing between the first two grid frequencies;
+for a single bin it must be supplied explicitly. The simulation always passes
+`instrument.freq_step_ghz`, so single-bin configurations are supported in both
+the spectral and IFG domains.
+
 ## IFG-domain simulation
 
 With `ifg.simulate = true` each IFG of each DU is built sample by sample, white

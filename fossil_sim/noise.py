@@ -32,6 +32,7 @@ cycle, DU, chunk of IFGs).
 import numpy as np
 
 from .config import Config
+from .ifg import _differential_spectrum_solver, opd_samples_m
 from .instrument import DetectorUnit
 
 # First entry of the SeedSequence key, separating noise from future components
@@ -45,7 +46,11 @@ SI_TO_MJY_SR = 1e20
 
 
 def noise_sigma_mjy_sr(config: Config, du: DetectorUnit) -> float:
-    """White-noise standard deviation per IFG and per bin of one DU, MJy/sr."""
+    """Nominal white-noise standard deviation per IFG and bin of one DU, MJy/sr.
+
+    Exact for the spectral-domain noise model. For simulated IFGs the fit
+    changes the bin variances; see :func:`sky_estimate_noise_variance`.
+    """
     nc = config.noise
     nep = nc.nep_lf_w_sqrt_hz if du.name.startswith("LF") else nc.nep_hf_w_sqrt_hz
     sigma_si = nep / (
@@ -65,7 +70,7 @@ def sample_noise_sigma(config: Config, du: DetectorUnit) -> float:
     """White-noise standard deviation per IFG sample of one DU, MJy/sr × GHz.
 
     NEP / √(2 δt) in the units of :func:`fossil_sim.ifg.du_interferograms`,
-    so that the fitted cosine amplitudes have :func:`noise_sigma_mjy_sr`.
+    giving :func:`noise_sigma_mjy_sr` for orthogonal cosine amplitudes.
     """
     return (
         noise_sigma_mjy_sr(config, du)
@@ -151,12 +156,29 @@ def du_noise_mjy_sr(
 def sky_estimate_noise_variance(
     config: Config, freq_ghz: np.ndarray, dus: list[DetectorUnit]
 ) -> np.ndarray:
-    """Noise variance per IFG of the sky estimate (mean over the DUs of each bin)."""
+    """Noise variance per IFG of the sky estimate (mean over the DUs of each bin).
+
+    With simulated IFGs, propagate the independent sample noise through the
+    actual least-squares fit: diag(C) = σ_sample² sum_j solver[k, j]².
+    """
     variance = np.zeros(freq_ghz.size)
     count = np.zeros(freq_ghz.size)
+    opd_m = opd_samples_m(config.ifg) if config.ifg.simulate else None
     for du in dus:
         mask = du.band_mask(freq_ghz)
-        variance[mask] += noise_sigma_mjy_sr(config, du) ** 2
+        if config.ifg.simulate:
+            solver = _differential_spectrum_solver(
+                freq_ghz,
+                du,
+                opd_m,
+                config.noise.modulation_efficiency,
+                freq_step_ghz=config.instrument.freq_step_ghz,
+            )
+            variance[mask] += sample_noise_sigma(config, du) ** 2 * np.sum(
+                solver**2, axis=1
+            )
+        else:
+            variance[mask] += noise_sigma_mjy_sr(config, du) ** 2
         count[mask] += 1
     with np.errstate(invalid="ignore", divide="ignore"):
         return variance / count**2

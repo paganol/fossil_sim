@@ -39,6 +39,16 @@ through the fit, {doc}`interferogram`); IFGs of the Recycling window get
 proposal (Table 2.3, photon-noise dominated), read as one value per DU (four
 pixels combined); AΩ, $\alpha$ and $f_\mathrm{opt}$ are PIXIE placeholders.
 
+The formula for $\delta S_\nu$ assumes orthogonal cosines. With
+`ifg.simulate = true`, the variance maps instead propagate the sample noise
+through the actual least-squares solver $L$:
+$\operatorname{Var}(d_k) = \sigma_\mathrm{sample}^2 \sum_j L_{kj}^2$.
+This includes the fitted constant and the finite OPD sampling; near Nyquist
+the bin variances can differ substantially from the nominal formula. The fit
+can also correlate frequency bins; the variance maps store only the diagonal
+of that covariance. The spectral-domain noise model retains independent bins
+with the nominal variance.
+
 With the baseline values ($m = 1$) $\delta S_\nu \simeq 1.1\times10^{4}$ Jy/sr
 (LF) and $3.0\times10^{5}$ Jy/sr (HF) per IFG and DU, i.e. a mission monopole
 sensitivity of $\simeq 1.2$ Jy/sr below 200 GHz. This is above the

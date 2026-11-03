@@ -70,6 +70,23 @@ def test_ifg_domain_without_sky_variation_matches_spectral(config, orbit, table)
     assert np.allclose(estimate[science], estimate_expected[science], rtol=1e-12)
 
 
+@pytest.mark.parametrize("freq_ghz", [100.0, 300.0])
+def test_single_bin_ifg_matches_spectral(config, orbit, table, freq_ghz):
+    cfg = replace(
+        ifg_config(config, sky_variation=False),
+        instrument=replace(
+            config.instrument, freq_min_ghz=freq_ghz, freq_max_ghz=freq_ghz + 1
+        ),
+    )
+    spectral = SignalModel(replace(cfg, ifg=config.ifg), orbit)
+    model = SignalModel(cfg, orbit)
+    expected, sky_expected, _ = spectral.compute(table)
+    recovered, sky_recovered, _ = model.compute(table)
+    for name in expected:
+        np.testing.assert_allclose(recovered[name], expected[name], atol=1e-10)
+    np.testing.assert_allclose(sky_recovered, sky_expected, atol=1e-10)
+
+
 def test_sky_on_the_ring_is_interpolated_to_the_samples(config, orbit, table):
     cfg = ifg_config(config)
     model = SignalModel(cfg, orbit, None)

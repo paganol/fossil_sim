@@ -38,6 +38,19 @@ def mirror_positions_m(config: IFGConfig) -> np.ndarray:
     return opd_samples_m(config) / config.opd_per_mirror_position
 
 
+def _frequency_step_ghz(freq_ghz: np.ndarray, freq_step_ghz: float | None) -> float:
+    """Use the supplied bin width, or infer it from a grid with at least two bins."""
+    if freq_step_ghz is None:
+        if freq_ghz.size < 2:
+            raise ValueError(
+                "freq_step_ghz is required for a single-bin frequency grid"
+            )
+        freq_step_ghz = float(freq_ghz[1] - freq_ghz[0])
+    if freq_step_ghz <= 0:
+        raise ValueError("freq_step_ghz must be > 0")
+    return freq_step_ghz
+
+
 @njit(cache=True)
 def _ifg_kernel(freq_ghz, total, difference, opd_m, freq_step_ghz, out):
     for j in range(opd_m.size):
@@ -55,10 +68,15 @@ def interferogram(
     du: DetectorUnit,
     opd_m: np.ndarray,
     modulation_efficiency: float = 1.0,
+    *,
+    freq_step_ghz: float | None = None,
 ) -> np.ndarray:
-    """Interferogram of one DU, in MJy/sr × GHz, for the spectra entering Ports 1 and 2."""
+    """Interferogram of one DU, in MJy/sr × GHz, for the spectra entering Ports 1 and 2.
+
+    ``freq_step_ghz`` defaults to the grid spacing; supply it for a single bin.
+    """
     mask = du.band_mask(freq_ghz)
-    freq_step_ghz = float(freq_ghz[1] - freq_ghz[0])
+    freq_step_ghz = _frequency_step_ghz(freq_ghz, freq_step_ghz)
     total = np.where(mask, port1_mjy_sr + port2_mjy_sr, 0.0)
     difference = np.where(mask, du.output_sign * (port1_mjy_sr - port2_mjy_sr), 0.0)
     out = np.empty(opd_m.size)
@@ -102,15 +120,18 @@ def du_interferograms(
     opd_m: np.ndarray,
     weights: np.ndarray,
     modulation_efficiency: float = 1.0,
+    *,
+    freq_step_ghz: float | None = None,
 ) -> np.ndarray:
     """Interferograms of one DU for a block of IFGs, (n_ifg, n_samples).
 
     ``port1_mjy_sr`` and ``port2_mjy_sr`` are the Port spectra on the sky
     window of each IFG, (n_ifg, n_window, n_freq); ``weights`` maps the window
     to the samples (:func:`sample_weights`). Same units as :func:`interferogram`.
+    ``freq_step_ghz`` defaults to the grid spacing; supply it for a single bin.
     """
     mask = du.band_mask(freq_ghz)
-    freq_step_ghz = float(freq_ghz[1] - freq_ghz[0])
+    freq_step_ghz = _frequency_step_ghz(freq_ghz, freq_step_ghz)
     total = (port1_mjy_sr[..., mask] + port2_mjy_sr[..., mask]).sum(axis=-1)
     difference = port1_mjy_sr[..., mask] - port2_mjy_sr[..., mask]
     # modulated part on every (window point, sample), then interpolated
@@ -121,24 +142,41 @@ def du_interferograms(
     return modulation_efficiency * freq_step_ghz * ifgs
 
 
+def _differential_spectrum_solver(
+    freq_ghz: np.ndarray,
+    du: DetectorUnit,
+    opd_m: np.ndarray,
+    modulation_efficiency: float = 1.0,
+    *,
+    freq_step_ghz: float | None = None,
+) -> np.ndarray:
+    """Linear map from IFG samples to band spectra, shared with noise propagation."""
+    mask = du.band_mask(freq_ghz)
+    freq_step_ghz = _frequency_step_ghz(freq_ghz, freq_step_ghz)
+    design = np.column_stack(
+        [np.ones_like(opd_m), modulation_matrix(freq_ghz[mask], opd_m)]
+    )
+    return np.linalg.pinv(design)[1:] / (freq_step_ghz * modulation_efficiency)
+
+
 def differential_spectra(
     freq_ghz: np.ndarray,
     ifgs: np.ndarray,
     du: DetectorUnit,
     opd_m: np.ndarray,
     modulation_efficiency: float = 1.0,
+    *,
+    freq_step_ghz: float | None = None,
 ) -> np.ndarray:
     """Recover s (I₁ − I₂) on the DU band bins from interferograms (n_ifg, n_samples).
 
     Least squares on a constant plus the cosines of the band bins (no
-    apodization), shape (n_ifg, n_band).
+    apodization), shape (n_ifg, n_band). ``freq_step_ghz`` defaults to the grid
+    spacing; supply it for a single bin.
     """
-    mask = du.band_mask(freq_ghz)
-    freq_step_ghz = float(freq_ghz[1] - freq_ghz[0])
-    design = np.column_stack(
-        [np.ones_like(opd_m), modulation_matrix(freq_ghz[mask], opd_m)]
+    solver = _differential_spectrum_solver(
+        freq_ghz, du, opd_m, modulation_efficiency, freq_step_ghz=freq_step_ghz
     )
-    solver = np.linalg.pinv(design)[1:] / (freq_step_ghz * modulation_efficiency)
     return ifgs @ solver.T
 
 
@@ -153,13 +191,21 @@ def differential_spectrum(
     du: DetectorUnit,
     opd_m: np.ndarray,
     modulation_efficiency: float = 1.0,
+    *,
+    freq_step_ghz: float | None = None,
 ) -> np.ndarray:
     """Recover s (I₁ − I₂) in the DU band from an interferogram, by least squares.
 
     Bins outside the band are returned as NaN.
+    ``freq_step_ghz`` defaults to the grid spacing; supply it for a single bin.
     """
     result = np.full(freq_ghz.size, np.nan)
     result[du.band_mask(freq_ghz)] = differential_spectra(
-        freq_ghz, ifg[None], du, opd_m, modulation_efficiency
+        freq_ghz,
+        ifg[None],
+        du,
+        opd_m,
+        modulation_efficiency,
+        freq_step_ghz=freq_step_ghz,
     )[0]
     return result

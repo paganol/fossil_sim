@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from fossil_sim.ifg import (
     differential_spectrum,
@@ -46,3 +47,31 @@ def test_mirror_positions_follow_opd_factor(config):
     # Step2 formula cos(4π ν δ / c): δ_max = c / (4 Δν) = 5 mm for 15 GHz bins
     assert np.max(mirror_positions_m(config.ifg)) == 0.005
     assert np.allclose(mirror_positions_m(config.ifg) * 2, opd_samples_m(config.ifg))
+
+
+@pytest.mark.parametrize("frequency_ghz", [100.0, 300.0])
+def test_single_bin_interferogram_uses_explicit_width(config, frequency_ghz):
+    freq_ghz = np.array([frequency_ghz])
+    du = next(
+        du for du in detector_units(config.instrument) if du.band_mask(freq_ghz)[0]
+    )
+    opd_m = opd_samples_m(config.ifg)
+    sky, bbir = np.array([10.0]), np.array([3.0])
+    width_ghz, efficiency = 15.0, 0.25
+    ifg = interferogram(
+        freq_ghz, sky, bbir, du, opd_m, efficiency, freq_step_ghz=width_ghz
+    )
+    from fossil_sim.constants import C_LIGHT_M_S
+
+    expected = (
+        efficiency
+        * width_ghz
+        * (13.0 + 7.0 * np.cos(2 * np.pi * frequency_ghz * 1e9 * opd_m / C_LIGHT_M_S))
+    )
+    np.testing.assert_allclose(ifg, expected, atol=1e-12)
+    recovered = differential_spectrum(
+        freq_ghz, ifg, du, opd_m, efficiency, freq_step_ghz=width_ghz
+    )
+    np.testing.assert_allclose(recovered, [7.0], atol=1e-12)
+    with pytest.raises(ValueError, match="freq_step_ghz is required"):
+        interferogram(freq_ghz, sky, bbir, du, opd_m)

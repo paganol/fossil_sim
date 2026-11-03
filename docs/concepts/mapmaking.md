@@ -35,6 +35,9 @@ When noise is on, the white-noise variance map of the sky is
 $\sigma^2(\nu) / N_p$, with $\sigma^2(\nu)$ the variance per IFG of
 $\hat S(\nu)$ (the mean of the L and R estimates: half the per-DU variance).
 It is exact because the noise level is the same for all Valid IFGs.
+For simulated interferograms the per-bin variance is propagated through the
+actual least-squares solver, including its finite-sampling effects
+({doc}`noise`).
 
 This is the optimal estimator for white noise of equal variance and no
 time-correlated systematics; more general map-makers will be needed once
