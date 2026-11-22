@@ -185,3 +185,16 @@ def test_pysm3_static_sky(config, tmp_path):
     plane = hp.Rotator(coord=["G", "E"])(np.array([[1.0, 0.0, 0.0]]).T).T
     values = sky.sample(plane)
     assert values[0, 1] > 10 * values[0, 0] > 0
+
+
+def test_cache_write_ignores_other_process_temporary(config, tmp_path):
+    """Each process writes its own temporary file (MPI, concurrent jobs)."""
+    from fossil_sim.input_sky import static_sky_cache_key
+
+    cfg = small_config(config.static_sky, tmp_path)
+    key = static_sky_cache_key(cfg, FREQ_GHZ, 1.6)
+    # another process's temporary file at the old shared name
+    (tmp_path / f"static_sky_{key[:16]}.tmp").mkdir()
+    sky = StaticSky(cfg, FREQ_GHZ, 1.6, emission=synthetic_emission())
+    assert sky.path.exists()
+    assert not list(tmp_path.glob(f"{sky.path.name}.*.tmp"))

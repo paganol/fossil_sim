@@ -75,3 +75,42 @@ def test_single_bin_interferogram_uses_explicit_width(config, frequency_ghz):
     np.testing.assert_allclose(recovered, [7.0], atol=1e-12)
     with pytest.raises(ValueError, match="freq_step_ghz is required"):
         interferogram(freq_ghz, sky, bbir, du, opd_m)
+
+
+@pytest.mark.parametrize("width_ghz", [np.nan, 10.0])
+def test_explicit_width_must_match_grid(config, width_ghz):
+    freq_ghz = frequency_grid_ghz(config.instrument)
+    du = detector_units(config.instrument)[0]
+    opd_m = opd_samples_m(config.ifg)
+    port = np.ones(freq_ghz.size)
+    with pytest.raises(ValueError, match="freq_step_ghz"):
+        interferogram(freq_ghz, port, port, du, opd_m, freq_step_ghz=width_ghz)
+
+
+def test_single_bin_rejects_nan_width(config):
+    freq_ghz = np.array([300.0])
+    du = detector_units(config.instrument)[1]
+    with pytest.raises(ValueError, match="freq_step_ghz"):
+        interferogram(
+            freq_ghz,
+            np.ones(1),
+            np.ones(1),
+            du,
+            opd_samples_m(config.ifg),
+            freq_step_ghz=np.nan,
+        )
+
+
+@pytest.mark.parametrize(
+    "fmin, fmax, step, size", [(1.0, 1.3, 0.1, 3), (30.0, 2000.0, 15.0, 132)]
+)
+def test_frequency_grid_excludes_maximum(config, fmin, fmax, step, size):
+    from dataclasses import replace
+
+    inst = replace(
+        config.instrument, freq_min_ghz=fmin, freq_max_ghz=fmax, freq_step_ghz=step
+    )
+    grid = frequency_grid_ghz(inst)
+    assert grid.size == size
+    assert grid[-1] < fmax
+    np.testing.assert_allclose(grid, fmin + step * np.arange(size), rtol=0, atol=0)

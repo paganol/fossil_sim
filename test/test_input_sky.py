@@ -91,3 +91,25 @@ def test_solar_velocity_in_ecliptic(config):
     assert np.allclose(velocity / np.linalg.norm(velocity), expected, atol=1e-5)
     lat_deg = np.rad2deg(np.arcsin(velocity[2] / np.linalg.norm(velocity)))
     assert lat_deg == pytest.approx(-11.15, abs=0.02)  # (λ, β) ≈ (171.66°, −11.15°)
+
+
+def test_wide_boost_range_falls_back_to_direct_evaluation(config):
+    """Outside the Chebyshev accuracy range the spectra are evaluated directly."""
+    from fossil_sim.input_sky import _boosted_spectra_mjy_sr
+
+    freq_ghz = np.arange(30.0, 2000.0, 15.0)
+    factor = np.linspace(0.9, 1.1, 50)
+    expected = isotropic_background_mjy_sr(
+        freq_ghz[None, :] * factor[:, None], config.sky
+    ) / (factor[:, None] ** 3)
+    observed = _boosted_spectra_mjy_sr(freq_ghz, factor, config.sky)
+    assert np.allclose(observed, expected, rtol=1e-13, atol=0)
+
+
+def test_shared_params_compared_with_arrays():
+    from fossil_sim.input_sky import _same_params
+
+    a = {"T_0": 286.0, "C": np.array([1.0, 2.0])}
+    assert _same_params(a, {"T_0": 286.0, "C": np.array([1.0, 2.0])})
+    assert not _same_params(a, {"T_0": 286.0, "C": np.array([1.0, 3.0])})
+    assert not _same_params(a, {"T_0": 286.0})

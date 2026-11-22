@@ -341,6 +341,11 @@ def validate(config: Config) -> None:
         raise ValueError("zodi: gauss_quad_degree and nprocesses must be >= 1")
     if not bbir.setpoints_k or len(bbir.port_offsets_k) != 2:
         raise ValueError("bbir: setpoints_k non-empty, port_offsets_k of length 2")
+    if config.timeline.recycling_scans == 0 and len(set(bbir.setpoints_k)) > 1:
+        raise ValueError(
+            "bbir.setpoints_k: set-point changes need Recycling windows "
+            "(timeline.recycling_scans > 0), the transient is not modelled"
+        )
     if bbir.hf_cavity_k != 0:
         raise ValueError("bbir.hf_cavity_k: the HF cavity is not modelled yet, use 0")
     inst = config.instrument

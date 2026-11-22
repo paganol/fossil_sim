@@ -39,15 +39,21 @@ def mirror_positions_m(config: IFGConfig) -> np.ndarray:
 
 
 def _frequency_step_ghz(freq_ghz: np.ndarray, freq_step_ghz: float | None) -> float:
-    """Use the supplied bin width, or infer it from a grid with at least two bins."""
+    """Use the supplied bin width, or infer it from a grid with at least two bins.
+
+    With two or more bins the supplied width must equal the grid spacing.
+    """
+    spacing = np.diff(freq_ghz)
     if freq_step_ghz is None:
         if freq_ghz.size < 2:
             raise ValueError(
                 "freq_step_ghz is required for a single-bin frequency grid"
             )
-        freq_step_ghz = float(freq_ghz[1] - freq_ghz[0])
-    if freq_step_ghz <= 0:
+        freq_step_ghz = float(spacing[0])
+    if not freq_step_ghz > 0:  # also NaN
         raise ValueError("freq_step_ghz must be > 0")
+    if spacing.size and not np.allclose(spacing, freq_step_ghz, rtol=1e-9, atol=0):
+        raise ValueError("freq_step_ghz must equal the spacing of a uniform grid")
     return freq_step_ghz
 
 

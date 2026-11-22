@@ -8,6 +8,22 @@ tagged releases.
 
 Changes on `main` that are not in a release yet.
 
+- Harden configuration and numerical edge cases found in the v0.1.7 review;
+  the baseline outputs are unchanged.
+  - Build the frequency grid from an integer bin count, so rounding in
+    `(max - min) / step` no longer adds a bin (e.g. 1–1.3 GHz in 0.1 GHz steps
+    gave four bins).
+  - Reject a NaN `freq_step_ghz` in the interferogram helpers, and an explicit
+    width that differs from the spacing of a multi-bin grid.
+  - Evaluate boosted backgrounds directly when the range of ν′/ν exceeds the
+    Chebyshev accuracy range (far above physical velocities).
+  - **Config change:** reject several `bbir.setpoints_k` with
+    `timeline.recycling_scans = 0`: set-point changes need a Recycling window.
+  - Write the Static-sky cache through a per-process temporary file, so
+    concurrent jobs sharing a cache directory do not collide.
+  - Pin `zodipy<1.2` (the single-pass zodiacal evaluation uses its private API)
+    and compare its shared parameters element-wise.
+
 ## 0.1.7 (2026-11-03)
 
 - Add IFG-domain simulation with `ifg.simulate = true`: generate interferogram

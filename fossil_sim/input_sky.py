@@ -21,6 +21,7 @@ receive the solar + orbital one (ADR 0003).
 import hashlib
 import json
 import os
+import uuid
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -98,6 +99,8 @@ def dipole_beam_factor(beam_fwhm_deg: float) -> float:
 # over |ν′/ν − 1| ≲ 1.3e-3 the error is ~(1.3e-3 x / 2)^n / n! relative, below
 # rounding up to 2 THz (x ≈ 35)
 BOOST_CHEBYSHEV_NODES = 12
+# Wider ranges of ν′/ν (larger than any physical velocity) are evaluated directly
+BOOST_CHEBYSHEV_MAX_HALF_WIDTH = 1.5e-3
 
 
 def _boosted_spectra_mjy_sr(
@@ -107,7 +110,8 @@ def _boosted_spectra_mjy_sr(
 
     The smooth backgrounds are evaluated at BOOST_CHEBYSHEV_NODES factors
     spanning ``factor`` and interpolated (equal to the direct evaluation to
-    rounding); extragalactic CO, a piecewise-linear template, is evaluated
+    rounding; ranges wider than BOOST_CHEBYSHEV_MAX_HALF_WIDTH are evaluated
+    directly); extragalactic CO, a piecewise-linear template, is evaluated
     for each factor.
     """
 
@@ -118,9 +122,13 @@ def _boosted_spectra_mjy_sr(
 
     low, high = factor.min(), factor.max()
     n_nodes = BOOST_CHEBYSHEV_NODES
-    if factor.size <= n_nodes or low == high:
-        return direct(factor, sky)
     centre, half_width = 0.5 * (high + low), 0.5 * (high - low)
+    if (
+        factor.size <= n_nodes
+        or half_width == 0
+        or half_width > BOOST_CHEBYSHEV_MAX_HALF_WIDTH
+    ):
+        return direct(factor, sky)
     k = np.arange(n_nodes)
     angle = np.pi * (k + 0.5) / n_nodes
     values = direct(centre + half_width * np.cos(angle), replace(sky, co_amplitude=0.0))
@@ -132,6 +140,11 @@ def _boosted_spectra_mjy_sr(
             freq_ghz[None, :] * factor[:, None], sky.co_amplitude
         ) / (factor[:, None] ** 3)
     return observed
+
+
+def _same_params(a: dict, b: dict) -> bool:
+    """Equal parameter dictionaries, values compared as arrays."""
+    return a.keys() == b.keys() and all(np.array_equal(a[k], b[k]) for k in a)
 
 
 def boosted_isotropic_background_mjy_sr(
@@ -328,7 +341,8 @@ class StaticSky:
                 config, self.freq_ghz, fwhm_deg, emission
             )
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.path.with_suffix(".tmp")
+            # one temporary file per process: concurrent writers do not collide
+            tmp = self.path.with_name(f"{self.path.name}.{uuid.uuid4().hex}.tmp")
             with h5py.File(tmp, "w") as f:
                 f.create_dataset("alm", data=self.alm)
                 if self.doppler_alm is not None:
@@ -436,7 +450,9 @@ class ZodiacalLight:
         reference = self.models[0]
         self._single_pass = all(
             m._ipd_model.brightness_at_step_callable is kelsall_brightness_at_step
-            and m._interped_shared_params == reference._interped_shared_params
+            and _same_params(
+                m._interped_shared_params, reference._interped_shared_params
+            )
             and all(p["albedo"] == 0 for p in m._interped_comp_params.values())
             for m in self.models
         )
