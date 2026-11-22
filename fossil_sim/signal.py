@@ -4,6 +4,11 @@ Port k sees the sky when its BSM points to the sky (Mode ``Bxy``, CONTEXT.md),
 otherwise the BBIR spectrum of that Port (ideal blackbody at the Port
 temperature, emissivity 1). The L output measures +(I₁ − I₂), the R output
 −(I₁ − I₂), each DU restricted to its band.
+
+In B11 the cross term between the two telescopes (Martin-Puplett interference
+of orthogonal polarizations from two separate apertures, odd in OPD) is
+neglected: ~1e-5 MJy/sr per IFG on the baseline sky, far below the noise
+(docs: Instrument and signal).
 """
 
 import numpy as np
