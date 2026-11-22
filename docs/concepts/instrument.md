@@ -74,16 +74,54 @@ $B_p(\nu) = B_\nu(T + \delta T_p)$, with $T$ the main-absorber set-point and
 $\delta T_p$ a per-Port offset; the data model already allows a different
 effective spectrum per Port. The high-frequency cavity is off in the baseline.
 
-## Sky reconstruction
+## Detector-unit response
 
-Assuming perfect calibration (unit gain, BBIR temperatures known exactly), the
-sky spectrum is recovered from each DU in a science Mode as
+Each DU measures, in each bin of its band,
 
 $$
-\hat S(\nu) = B_q(\nu) + \sigma\, s\, d(\nu), \qquad
+d(\nu) = g(\nu)\,\bigl[s\,(I_1 - I_2)(\nu) + o(\nu)\bigr] + n(\nu),
+$$
+
+with $g$ the gain relative to the nominal response (dimensionless), $o$ an
+offset referred to the sky and $n$ the detector noise ({doc}`noise`), which is
+outside the gain. The gain is a scalar per DU times $1 + \delta g(\nu)$, with
+$\delta g$ Gaussian of rms `response.gain_rms`, independent between bins and
+DUs and fixed by the seed for the whole mission. The offset is the emission
+imbalance between the two arms, $o(\nu) = \varepsilon\, B_\nu(T_\mathrm{inst})$,
+with a signed emissivity $\varepsilon$ per DU: an imbalance that enters like
+$I_1 - I_2$ has $\varepsilon_R = -\varepsilon_L$. The baseline is the ideal
+instrument, $g = 1$ and $o = 0$; gain drifts in time are not modelled.
+
+In the IFG domain the gain multiplies both the modulated and the unmodulated
+term of the interferogram, and the offset adds $g\,o$ to the modulated
+amplitude, so the fit recovers the same $d$ as in the spectral domain.
+
+## Sky reconstruction
+
+The sky is reconstructed from the calibrated spectra
+$\tilde d = d / \hat g - \hat o$, with $(\hat g, \hat o)$ the calibration
+solution chosen by `calibration.solution`: `nominal` ($\hat g = 1$,
+$\hat o = 0$) or `true` (the simulated response, an oracle). With the BBIR
+temperatures known exactly, the sky spectrum is recovered from each DU in a
+science Mode as
+
+$$
+\hat S(\nu) = B_q(\nu) + \sigma\, s\, \tilde d(\nu), \qquad
 \sigma = \begin{cases} +1 & \mathrm{B10},\ q = 2 \\ -1 & \mathrm{B01},\ q = 1 \end{cases}
 $$
 
 with $q$ the Port looking at the BBIR. In each frequency bin the estimates of
 the L and R DUs covering it are averaged. B00 and B11 IFGs give no sky
 estimate.
+
+A calibration error leaves, per DU,
+
+$$
+\hat S - S = \left(\frac{g}{\hat g} - 1\right)(S - B_q)
++ \sigma\, s \left(\frac{g}{\hat g}\, o - \hat o\right):
+$$
+
+the gain error scales the difference between sky and BBIR, so it vanishes
+when the BBIR matches the sky (the null of an absolute FTS), while the offset
+error flips sign between B10 and B01 and cancels in maps with equal time in the
+two Modes. The noise variance of the estimate is divided by $\hat g^2$.

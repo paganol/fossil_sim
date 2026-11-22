@@ -195,6 +195,24 @@ class IFGConfig:
 
 
 @dataclass(frozen=True)
+class ResponseConfig:
+    """True DU response (``fossil_sim.response``); DU order LF-L, HF-L, LF-R, HF-R."""
+
+    gain: tuple[float, ...] = (1.0, 1.0, 1.0, 1.0)
+    gain_rms: float = 0.0
+    offset_emissivity: tuple[float, ...] = (0.0, 0.0, 0.0, 0.0)
+    instrument_temperature_k: float = 2.725
+
+
+CALIBRATION_SOLUTIONS = ("nominal", "true")
+
+
+@dataclass(frozen=True)
+class CalibrationConfig:
+    solution: str = "nominal"
+
+
+@dataclass(frozen=True)
 class Config:
     simulation: SimulationConfig
     timeline: TimelineConfig
@@ -210,6 +228,8 @@ class Config:
     zodi: ZodiConfig
     output: OutputConfig
     noise: NoiseConfig
+    response: ResponseConfig = field(default_factory=ResponseConfig)
+    calibration: CalibrationConfig = field(default_factory=CalibrationConfig)
     source_path: str | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
@@ -390,4 +410,15 @@ def validate(config: Config) -> None:
         raise ValueError("noise: all parameters must be > 0")
     if nc.modulation_efficiency > 1:
         raise ValueError("noise.modulation_efficiency must be in (0, 1]")
+    rc = config.response
+    if len(rc.gain) != 4 or len(rc.offset_emissivity) != 4:
+        raise ValueError(
+            "response: gain and offset_emissivity need one value per DU (4)"
+        )
+    if min(rc.gain) <= 0 or rc.gain_rms < 0 or rc.instrument_temperature_k <= 0:
+        raise ValueError(
+            "response: gain > 0, gain_rms >= 0 and instrument_temperature_k > 0"
+        )
+    if config.calibration.solution not in CALIBRATION_SOLUTIONS:
+        raise ValueError(f"calibration.solution must be one of {CALIBRATION_SOLUTIONS}")
     Time(config.simulation.mission_start, scale="tdb")  # raises if malformed

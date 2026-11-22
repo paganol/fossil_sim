@@ -48,6 +48,12 @@
 :members:
 ```
 
+## Detector-unit response
+
+```{automodule} fossil_sim.response
+:members:
+```
+
 ## Noise
 
 ```{automodule} fossil_sim.noise

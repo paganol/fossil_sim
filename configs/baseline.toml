@@ -143,6 +143,20 @@ modulation_efficiency = 1.0               # TBD — convention to fix with the i
                                           # two (then NEP of the pair). Must match the NEP above.
 recycling_noise_factor = 3.0              # TBD — placeholder: noise × 3 in the Recycling window
 
+[response]
+# True response of each DU, d = g (s (I1 − I2) + o) + n (docs: Instrument and
+# signal); DU order LF-L, HF-L, LF-R, HF-R. Defaults: ideal instrument.
+gain = [1.0, 1.0, 1.0, 1.0]               # TBD — gain relative to the nominal response
+gain_rms = 0.0                            # TBD — rms of the per-bin fluctuation of g,
+                                          # g = gain × (1 + gain_rms × N(0, 1)), fixed per seed
+offset_emissivity = [0.0, 0.0, 0.0, 0.0]  # TBD — signed emissivity imbalance ε between the
+                                          # arms: offset o = ε B_ν(instrument_temperature_k)
+instrument_temperature_k = 2.725          # TBD — placeholder instrument temperature
+
+[calibration]
+solution = "nominal"                      # calibration used for the sky estimate:
+                                          # "nominal" (g = 1, o = 0) | "true" (oracle)
+
 [output]
 save_tod = false                          # one HDF5 file per Cooler cycle when true
 

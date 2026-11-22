@@ -8,6 +8,19 @@ tagged releases.
 
 Changes on `main` that are not in a release yet.
 
+- Add a response for each DU, d = g (s (I₁ − I₂) + o) + n: gain per DU with a
+  per-bin Gaussian fluctuation fixed by the seed, and an offset from the
+  emission imbalance between the arms, ε B_ν(T_inst) (new `[response]`
+  section; the baseline is the ideal instrument, so outputs are unchanged).
+  The sky estimate and its noise variance use a calibration solution,
+  `calibration.solution = "nominal"` (g = 1, o = 0) or `"true"` (oracle).
+  Both domains: in the IFG domain the gain also scales the unmodulated term.
+  TOD files store the uncalibrated spectra and the true response under
+  `response/`.
+  **Config change:** new `[response]` and `[calibration]` sections (optional,
+  defaults as the baseline); the configuration hash changes for every
+  configuration.
+
 ## 0.1.8 (2026-11-22)
 
 - Harden configuration and numerical edge cases found in the v0.1.7 review;
