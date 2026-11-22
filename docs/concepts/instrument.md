@@ -45,6 +45,28 @@ the sky with opposite signs, so that their difference doubles the sky signal
 and cancels any common instrumental offset. B00 cross-calibrates the two
 Ports; B11 is a null test (zero for identical, co-aligned telescopes).
 
+### Cross term in B11 (neglected)
+
+In B11 the FTS coherently combines the fields of two separate apertures, so on
+top of $I_1 - I_2$ the output carries a cross-correlation term between the two
+telescopes. In a Martin-Puplett FTS it interferes orthogonal polarizations of
+the two Ports, $\operatorname{Im}\langle E_{x1}E_{y2}^*\rangle\,\sin(2\pi\nu x/c)$:
+
+- it needs sky polarization or differential cross-polarization between the two
+  arms, and vanishes for an unpolarized sky and ideal grids;
+- it is odd in $x$, so it lands in the quadrature (sine) spectrum and reaches
+  the cosine spectrum only through phase errors;
+- the monopole and dipole do not contribute for non-overlapping apertures:
+  only sky structure on angular scales near $\lambda/b$, with $b$ the baseline,
+  couples, through the edges of the beam.
+
+With the baseline sky and placeholder optics it is $\sim 10^{-5}$ MJy/sr per
+IFG, 3–4 orders of magnitude below the noise per IFG, with zero mean over the
+sky. The simulation therefore sets $d = 0$ in B11 (identical telescopes). The
+term is centred at $x = \pm\Delta$, with $\Delta$ the path imbalance between
+the two telescope arms, and becomes relevant only with arm imbalance and
+phase errors in the IFG domain.
+
 ## BBIR
 
 The BBIR spectrum seen by Port $p$ is an ideal blackbody,
