@@ -117,7 +117,7 @@ def test_ifg_variance_propagates_sample_noise(
     w_per_unit = (
         nc.etendue_cm2_sr * 1e-4 * nc.absorptivity * nc.optical_efficiency * 1e-11
     )
-    for du in dus[:2]:  # L and R have identical noise and opposite sky signs
+    for du in dus[:2]:  # LF-L and HF-L: the R DUs have the same noise
         nep = nc.nep_lf_w_sqrt_hz if du.name.startswith("LF") else nc.nep_hf_w_sqrt_hz
         sigma_sample = (
             nep

@@ -11,6 +11,7 @@ from fossil_sim.operations import (
     cycle_timeline,
     ifg_modes,
     mode_sky_ports,
+    mode_switch_dead_ifgs,
     num_cycles,
     operation_flags,
 )
@@ -154,9 +155,15 @@ def test_mode_sky_ports():
 
 @pytest.mark.parametrize("interval_s,dead_time_s", [(8.0, 4.0), (10.0, 8.0)])
 @pytest.mark.parametrize("pattern", [("B10", "B01"), ("B10",)])
-def test_no_recycling_keeps_mode_switch_flags_continuous(
-    config, interval_s, dead_time_s, pattern
+@pytest.mark.parametrize("recycling_scans", [0, 1])
+def test_mode_switch_flags_follow_observing_periods(
+    config, interval_s, dead_time_s, pattern, recycling_scans
 ):
+    """Dead time follows each switch within an observing period, not across one.
+
+    Without Recycling the observing period spans all cycles; with Recycling
+    each cycle's Rings are one, and the BSMs are set during the window.
+    """
     cfg = replace(
         config,
         timeline=replace(
@@ -164,7 +171,7 @@ def test_no_recycling_keeps_mode_switch_flags_continuous(
             ifgs_per_scan=4,
             scans_per_ring=1,
             rings_per_cycle=2,
-            recycling_scans=0,
+            recycling_scans=recycling_scans,
         ),
         operations=replace(
             config.operations,
@@ -173,11 +180,23 @@ def test_no_recycling_keeps_mode_switch_flags_continuous(
             mode_pattern=pattern,
         ),
     )
-    cycles = [operation_flags(cfg, cycle_timeline(cfg, c)) for c in range(4)]
+    timelines = [cycle_timeline(cfg, c) for c in range(4)]
+    cycles = [operation_flags(cfg, tl) for tl in timelines]
     modes = np.concatenate([m for m, _ in cycles])
     flags = np.concatenate([f for _, f in cycles])
-    expected = np.zeros(modes.size, dtype=np.uint8)
-    dead_ifgs = int(np.ceil(dead_time_s / cfg.timeline.ifg_duration_s))
-    for switch in np.flatnonzero(modes[1:] != modes[:-1]) + 1:
-        expected[switch : switch + dead_ifgs] |= FLAG_MODE_SWITCH
+    recycling = np.concatenate([tl.in_recycling for tl in timelines])
+    cycle_id = np.concatenate(
+        [np.full(tl.in_recycling.size, tl.cycle_id) for tl in timelines]
+    )
+    expected = np.where(recycling, FLAG_RECYCLING, 0).astype(np.uint8)
+    periods = (
+        [~recycling]
+        if recycling_scans == 0
+        else [~recycling & (cycle_id == c) for c in range(4)]
+    )
+    dead_ifgs = mode_switch_dead_ifgs(cfg)
+    for period in periods:
+        ifgs = np.flatnonzero(period)
+        for switch in np.flatnonzero(modes[ifgs][1:] != modes[ifgs][:-1]) + 1:
+            expected[ifgs[switch : switch + dead_ifgs]] |= FLAG_MODE_SWITCH
     np.testing.assert_array_equal(flags, expected)

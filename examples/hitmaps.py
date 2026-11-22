@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from fossil_sim.config import load_config
+from fossil_sim.operations import MODES
 from fossil_sim.simulation import run_simulation
 
 REPO = Path(__file__).parents[1]
@@ -86,8 +87,8 @@ def main(config_path: Path, output_dir: Path) -> None:
             for i, (title, hits) in enumerate(
                 [
                     ("total", total),
-                    ("B10", result.hit_maps.hits[nside][2]),
-                    ("B01", result.hit_maps.hits[nside][1]),
+                    ("B10", result.hit_maps.hits[nside][MODES.index("B10")]),
+                    ("B01", result.hit_maps.hits[nside][MODES.index("B01")]),
                 ]
             ):
                 hp.mollview(

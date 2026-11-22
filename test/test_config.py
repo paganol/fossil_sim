@@ -1,3 +1,4 @@
+import subprocess
 import tomllib
 from pathlib import Path
 
@@ -52,6 +53,8 @@ def test_hash_is_stable_and_content_based():
         ("maps", "nsides", [64, 100]),
         ("ifg", "max_opd_m", 0.005),
         ("noise", "modulation_efficiency", 1.5),
+        ("ifg", "samples_per_ifg", 1),
+        ("static_sky", "nthreads", -1),
     ],
 )
 def test_invalid_values_are_rejected(section, key, value):
@@ -70,8 +73,36 @@ def test_ifg_nyquist_is_checked_only_when_simulated():
         config_from_dict(values)
 
 
+def test_git_sha_is_the_full_commit():
+    """Full HEAD hash, with ``-dirty`` for uncommitted changes to tracked files."""
+    repo = BASELINE.parents[1]
+    if not (repo / ".git").exists():
+        pytest.skip("not a git checkout")
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=repo,
+    ).stdout.strip()
+    git_sha = load_config(BASELINE).provenance()["git_sha"]
+    assert git_sha.removesuffix("-dirty") == head
+
+
 def test_uncovered_poles_warn():
     values = baseline_dict()
     values["scanning"]["spin_boresight_angle_deg"] = 85.0
     with pytest.warns(UserWarning, match="poles"):
         config_from_dict(values)
+
+
+def test_bbir_setpoint_changes_need_recycling():
+    """Without Recycling a set-point change would fall in science data."""
+    values = baseline_dict()
+    values["timeline"]["recycling_scans"] = 0
+    config_from_dict(values)  # one set-point: no change
+    values["bbir"]["setpoints_k"] = [2.7, 2.8]
+    with pytest.raises(ValueError, match="recycling_scans"):
+        config_from_dict(values)
+    values["timeline"]["recycling_scans"] = 18
+    config_from_dict(values)

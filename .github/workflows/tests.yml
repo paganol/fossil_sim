@@ -50,7 +50,6 @@ jobs:
   mpi:
     # MPI run must equal the serial run (ADR 0001)
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5

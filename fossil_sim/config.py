@@ -149,6 +149,7 @@ class StaticSkyConfig:
     doppler: bool
     cache_dir: str
     sampling: str
+    nthreads: int = 0  # synthesis threads, 0 = all cores (performance only)
 
 
 # pysm3 models that would double count the Isotropic backgrounds or are not
@@ -235,12 +236,18 @@ class Config:
             if not (repo / ".git").exists():  # installed copy: no checkout to ask
                 raise OSError
             git_sha = subprocess.run(
-                ["git", "describe", "--always", "--dirty", "--abbrev=40"],
+                ["git", "rev-parse", "HEAD"],
                 capture_output=True,
                 text=True,
                 check=True,
                 cwd=repo,
             ).stdout.strip()
+            # tracked files only, as `git describe --dirty`
+            dirty = subprocess.run(
+                ["git", "diff", "--quiet", "HEAD"], check=False, cwd=repo
+            )
+            if dirty.returncode == 1:
+                git_sha += "-dirty"
         except (OSError, subprocess.CalledProcessError):
             git_sha = "unknown"
         return {
@@ -321,7 +328,9 @@ def validate(config: Config) -> None:
         raise ValueError("operations.recycling_data must be 'flagged' or 'off'")
     if config.ifg.opd_per_mirror_position <= 0 or config.ifg.max_opd_m <= 0:
         raise ValueError("ifg: max_opd_m and opd_per_mirror_position must be > 0")
-    opd_step_m = 2 * config.ifg.max_opd_m / max(config.ifg.samples_per_ifg - 1, 1)
+    if config.ifg.samples_per_ifg < 2:
+        raise ValueError("ifg.samples_per_ifg must be >= 2")
+    opd_step_m = 2 * config.ifg.max_opd_m / (config.ifg.samples_per_ifg - 1)
     if (
         config.ifg.simulate
         and opd_step_m * config.instrument.freq_max_ghz * 1e9 > 0.5 * C_LIGHT_M_S
@@ -337,10 +346,17 @@ def validate(config: Config) -> None:
         raise ValueError("static_sky.sampling must be 'alm' or 'nearest'")
     if st.lmax < 1 or st.nside < 1:
         raise ValueError("static_sky: nside and lmax must be >= 1")
+    if st.nthreads < 0:
+        raise ValueError("static_sky.nthreads must be >= 0 (0 = all cores)")
     if config.zodi.gauss_quad_degree < 1 or config.zodi.nprocesses < 1:
         raise ValueError("zodi: gauss_quad_degree and nprocesses must be >= 1")
     if not bbir.setpoints_k or len(bbir.port_offsets_k) != 2:
         raise ValueError("bbir: setpoints_k non-empty, port_offsets_k of length 2")
+    if config.timeline.recycling_scans == 0 and len(set(bbir.setpoints_k)) > 1:
+        raise ValueError(
+            "bbir.setpoints_k: set-point changes need Recycling windows "
+            "(timeline.recycling_scans > 0), the transient is not modelled"
+        )
     if bbir.hf_cavity_k != 0:
         raise ValueError("bbir.hf_cavity_k: the HF cavity is not modelled yet, use 0")
     inst = config.instrument

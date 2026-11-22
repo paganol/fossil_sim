@@ -11,6 +11,9 @@ import numpy as np
 
 from .config import InstrumentConfig
 
+# Tolerance, in bins, on (max - min) / step when counting the grid bins
+GRID_TOLERANCE = 1e-9
+
 
 @dataclass(frozen=True)
 class DetectorUnit:
@@ -25,14 +28,19 @@ class DetectorUnit:
 
 
 def frequency_grid_ghz(config: InstrumentConfig) -> np.ndarray:
-    """Frequency bin centres, as ``np.arange(min, max, step)``.
+    """Frequency bin centres ``min + k step`` below ``max`` (excluded).
+
+    The bin count is an integer computed with a tolerance, so rounding in
+    ``(max - min) / step`` adds no bin (``np.arange(1, 1.3, 0.1)`` has four).
 
     >>> from fossil_sim.config import InstrumentConfig
     >>> grid = frequency_grid_ghz(InstrumentConfig(60.0, 2000.0, 15.0, 50.0, 2000.0, 300.0, 1.6))
     >>> grid[0], grid[-1], grid.size
     (np.float64(60.0), np.float64(1995.0), 130)
     """
-    return np.arange(config.freq_min_ghz, config.freq_max_ghz, config.freq_step_ghz)
+    span = (config.freq_max_ghz - config.freq_min_ghz) / config.freq_step_ghz
+    n_bins = int(np.ceil(span - GRID_TOLERANCE))
+    return config.freq_min_ghz + config.freq_step_ghz * np.arange(n_bins)
 
 
 def detector_units(config: InstrumentConfig) -> list[DetectorUnit]:

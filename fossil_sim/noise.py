@@ -32,7 +32,7 @@ cycle, DU, chunk of IFGs).
 import numpy as np
 
 from .config import Config
-from .ifg import _differential_spectrum_solver, opd_samples_m
+from .ifg import differential_spectrum_solver, opd_samples_m
 from .instrument import DetectorUnit
 
 # First entry of the SeedSequence key, separating noise from future components
@@ -153,27 +153,44 @@ def du_noise_mjy_sr(
     return noise * (noise_sigma_mjy_sr(config, du) * scale)[:, None]
 
 
-def sky_estimate_noise_variance(
+def ifg_solvers(
     config: Config, freq_ghz: np.ndarray, dus: list[DetectorUnit]
+) -> dict[str, np.ndarray]:
+    """:func:`fossil_sim.ifg.differential_spectrum_solver` of each DU, by name."""
+    opd_m = opd_samples_m(config.ifg)
+    return {
+        du.name: differential_spectrum_solver(
+            freq_ghz,
+            du,
+            opd_m,
+            config.noise.modulation_efficiency,
+            freq_step_ghz=config.instrument.freq_step_ghz,
+        )
+        for du in dus
+    }
+
+
+def sky_estimate_noise_variance(
+    config: Config,
+    freq_ghz: np.ndarray,
+    dus: list[DetectorUnit],
+    solvers: dict[str, np.ndarray] | None = None,
 ) -> np.ndarray:
     """Noise variance per IFG of the sky estimate (mean over the DUs of each bin).
 
     With simulated IFGs, propagate the independent sample noise through the
     actual least-squares fit: diag(C) = σ_sample² sum_j solver[k, j]².
+    ``solvers`` maps DU names to :func:`fossil_sim.ifg.differential_spectrum_solver`
+    (computed here if not given).
     """
     variance = np.zeros(freq_ghz.size)
     count = np.zeros(freq_ghz.size)
-    opd_m = opd_samples_m(config.ifg) if config.ifg.simulate else None
+    if config.ifg.simulate and solvers is None:
+        solvers = ifg_solvers(config, freq_ghz, dus)
     for du in dus:
         mask = du.band_mask(freq_ghz)
         if config.ifg.simulate:
-            solver = _differential_spectrum_solver(
-                freq_ghz,
-                du,
-                opd_m,
-                config.noise.modulation_efficiency,
-                freq_step_ghz=config.instrument.freq_step_ghz,
-            )
+            solver = solvers[du.name]
             variance[mask] += sample_noise_sigma(config, du) ** 2 * np.sum(
                 solver**2, axis=1
             )

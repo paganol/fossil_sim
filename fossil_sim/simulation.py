@@ -12,7 +12,7 @@ import h5py
 import numpy as np
 
 from .config import MODES, Config
-from .ifg import differential_spectra, du_interferograms, opd_samples_m, sample_weights
+from .ifg import du_interferograms, opd_samples_m, sample_weights
 from .input_sky import (
     StaticSky,
     ZodiacalLight,
@@ -23,7 +23,12 @@ from .input_sky import (
 )
 from .instrument import detector_units, frequency_grid_ghz
 from .mapmaking import DIAGNOSTIC_OUTPUTS, HitMaps, SpectralMaps
-from .noise import SampleNoise, du_noise_mjy_sr, sky_estimate_noise_variance
+from .noise import (
+    SampleNoise,
+    du_noise_mjy_sr,
+    ifg_solvers,
+    sky_estimate_noise_variance,
+)
 from .operations import (
     FLAG_NAMES,
     FLAG_SAA_EXCEEDED,
@@ -56,8 +61,8 @@ IFG_DTYPE = np.dtype(
         ("cycle_id", np.int32),
         ("ring_id", np.int32),  # -1 during the Recycling window
         ("scan_id", np.int32),
-        ("ring_in_cycle", np.int64),  # last Ring during the Recycling window
-        ("ifg_in_scan", np.int64),
+        ("ring_in_cycle", np.int32),  # last Ring during the Recycling window
+        ("ifg_in_scan", np.int32),
         ("boresight", np.float64, 3),  # unit vector, J2000 ecliptic
         ("mode", np.int8),  # index into config.MODES
         ("flags", np.uint8),
@@ -130,6 +135,10 @@ class SignalModel:
             self.sample_weights = sample_weights(
                 config.ifg.samples_per_ifg, SKY_GRID_PER_IFG
             )
+            # least-squares solver of each DU, shared with the noise variance
+            self.solvers = ifg_solvers(config, self.freq_ghz, self.dus)
+        else:
+            self.solvers = None
 
     def velocity_km_s(self, orbital_km_s: np.ndarray) -> np.ndarray:
         """Spacecraft velocity with respect to the CMB, (n, 3)."""
@@ -335,9 +344,7 @@ class SignalModel:
             )
             if noise is not None:
                 ifgs += noise[du.name]
-            result[du.name] = differential_spectra(
-                self.freq_ghz, ifgs, du, self.opd_m, m, freq_step_ghz=freq_step_ghz
-            )
+            result[du.name] = ifgs @ self.solvers[du.name].T
         return result
 
     def output_spectra(
@@ -439,7 +446,9 @@ def run_simulation(
         spectral_maps=SpectralMaps(
             config.maps.nsides,
             model.freq_ghz,
-            sky_estimate_noise_variance(config, model.freq_ghz, model.dus)
+            sky_estimate_noise_variance(
+                config, model.freq_ghz, model.dus, model.solvers
+            )
             if config.noise.enabled
             else None,
         )

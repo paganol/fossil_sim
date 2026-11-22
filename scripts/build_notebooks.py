@@ -297,7 +297,10 @@ corresponding mission monopole sensitivity, and the noise per pixel of the
     code("""from fossil_sim.instrument import detector_units
 from fossil_sim.noise import noise_sigma_mjy_sr
 
-valid_science = config.simulation.duration_days * 86400 / config.timeline.ifg_duration_s * (69 / 87)
+tl = config.timeline
+observing_scans = tl.scans_per_ring * tl.rings_per_cycle  # Recycling flagged
+valid_fraction = observing_scans / (observing_scans + tl.recycling_scans)
+valid_science = config.simulation.duration_days * 86400 / tl.ifg_duration_s * valid_fraction
 sigma_ifg = np.sqrt(maps.noise_variance_per_ifg)
 fig, ax = plt.subplots(figsize=(8, 4))
 for du in detector_units(config.instrument)[:2]:

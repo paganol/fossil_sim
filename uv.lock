@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 
 [[package]]
@@ -827,7 +827,7 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.13" },
     { name = "sphinx", marker = "extra == 'docs'", specifier = ">=8.1" },
     { name = "sphinxcontrib-bibtex", marker = "extra == 'docs'", specifier = ">=2.6" },
-    { name = "zodipy", specifier = ">=1.1.5" },
+    { name = "zodipy", specifier = ">=1.1.5,<1.2" },
 ]
 provides-extras = ["dev", "docs", "mpi", "oracle"]
 

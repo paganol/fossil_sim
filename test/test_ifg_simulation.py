@@ -7,7 +7,7 @@ from fossil_sim.ifg import modulation_matrix, sample_weights
 from fossil_sim.instrument import detector_units
 from fossil_sim.noise import SampleNoise, noise_sigma_mjy_sr
 from fossil_sim.scanning import ring_circles, ring_spin_axes
-from fossil_sim.simulation import SignalModel, build_ifg_table
+from fossil_sim.simulation import SignalModel, build_ifg_table, run_simulation
 
 
 class ProfileSky:
@@ -216,3 +216,22 @@ def test_ifg_matches_sample_by_sample_evaluation(config, orbit, table):
         # ...and reproduced by the interpolated windows (cubic interpolation,
         # 8 grid points per IFG: ~1e-4 of the blob on the sky)
         assert np.abs(varying[du.name] - exact).max() < 3e-3 * effect
+
+
+def test_ifg_noise_map_matches_variance_map(config):
+    """IFG domain end to end: map residuals follow the propagated variance."""
+    quiet = replace(
+        ifg_config(config, sky_variation=False, noise=True),
+        static_sky=replace(config.static_sky, models=()),
+        # shorter Cooler cycle: same statistics, a few seconds
+        timeline=replace(config.timeline, scans_per_ring=4, recycling_scans=2),
+    )
+    noisy = run_simulation(quiet, num_of_cycles=1).spectral_maps
+    clean = run_simulation(
+        replace(quiet, noise=replace(quiet.noise, enabled=False)), num_of_cycles=1
+    ).spectral_maps
+    seen = clean.sky_count[64] > 0
+    residual = noisy.sky_map(64)[:, seen] - clean.sky_map(64)[:, seen]
+    chi = residual / np.sqrt(noisy.sky_variance_map(64)[:, seen])
+    assert chi.std() == pytest.approx(1.0, rel=0.02)  # measured 0.998
+    assert abs(chi.mean()) < 0.02
