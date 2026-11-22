@@ -148,7 +148,7 @@ def du_interferograms(
     return modulation_efficiency * freq_step_ghz * ifgs
 
 
-def _differential_spectrum_solver(
+def differential_spectrum_solver(
     freq_ghz: np.ndarray,
     du: DetectorUnit,
     opd_m: np.ndarray,
@@ -156,7 +156,12 @@ def _differential_spectrum_solver(
     *,
     freq_step_ghz: float | None = None,
 ) -> np.ndarray:
-    """Linear map from IFG samples to band spectra, shared with noise propagation."""
+    """Linear map from IFG samples to the DU band spectra, (n_band, n_samples).
+
+    ``ifgs @ solver.T`` is :func:`differential_spectra`; the same matrix
+    propagates sample noise (:func:`fossil_sim.noise.sky_estimate_noise_variance`).
+    It depends only on the configuration: compute it once per DU and reuse it.
+    """
     mask = du.band_mask(freq_ghz)
     freq_step_ghz = _frequency_step_ghz(freq_ghz, freq_step_ghz)
     design = np.column_stack(
@@ -180,7 +185,7 @@ def differential_spectra(
     apodization), shape (n_ifg, n_band). ``freq_step_ghz`` defaults to the grid
     spacing; supply it for a single bin.
     """
-    solver = _differential_spectrum_solver(
+    solver = differential_spectrum_solver(
         freq_ghz, du, opd_m, modulation_efficiency, freq_step_ghz=freq_step_ghz
     )
     return ifgs @ solver.T

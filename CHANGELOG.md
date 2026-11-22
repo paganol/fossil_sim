@@ -31,6 +31,17 @@ Changes on `main` that are not in a release yet.
   the propagated variance, Mode-switch flags with and without Recycling, and
   an MPI check that also compares sky and raw spectral maps with noise. The
   MPI job is now required in CI.
+- Compute the least-squares solver of each DU once per run in IFG-domain
+  simulations and share it with the noise variance; it is public as
+  `fossil_sim.ifg.differential_spectrum_solver` (results unchanged).
+- Reuse one thread pool for the Static-sky synthesis, sized by the new
+  optional `static_sky.nthreads` (0 = all cores, the previous behaviour).
+  **Config change:** the configuration hash changes for every configuration.
+- **TOD format change:** store `ring_in_cycle` and `ifg_in_scan` as `int32`,
+  like the other indices of the IFG table.
+- Derive the valid-data fraction in the spectral-maps notebook from the
+  timeline instead of a hard-coded 69/87, and select hit maps by Mode name in
+  the hit-map example.
 
 ## 0.1.7 (2026-11-03)
 

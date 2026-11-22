@@ -105,6 +105,8 @@ doppler = true                            # first-order Doppler (ADR 0003): orbi
                                           # and extragalactic models; slope dI/dlnν from pysm3
 cache_dir = "cache/static_sky"            # relative to the working directory
 sampling = "alm"                          # "alm" (ducc0, exact) | "nearest" (pixel)
+nthreads = 0                              # synthesis threads, 0 = all cores (performance only;
+                                          # lower it when several MPI ranks share a node)
 
 [zodi]
 # Zodiacal light (zodipy), seen from the spacecraft position of [orbit].

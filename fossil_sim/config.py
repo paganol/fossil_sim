@@ -149,6 +149,7 @@ class StaticSkyConfig:
     doppler: bool
     cache_dir: str
     sampling: str
+    nthreads: int = 0  # synthesis threads, 0 = all cores (performance only)
 
 
 # pysm3 models that would double count the Isotropic backgrounds or are not
@@ -345,6 +346,8 @@ def validate(config: Config) -> None:
         raise ValueError("static_sky.sampling must be 'alm' or 'nearest'")
     if st.lmax < 1 or st.nside < 1:
         raise ValueError("static_sky: nside and lmax must be >= 1")
+    if st.nthreads < 0:
+        raise ValueError("static_sky.nthreads must be >= 0 (0 = all cores)")
     if config.zodi.gauss_quad_degree < 1 or config.zodi.nprocesses < 1:
         raise ValueError("zodi: gauss_quad_degree and nprocesses must be >= 1")
     if not bbir.setpoints_k or len(bbir.port_offsets_k) != 2:

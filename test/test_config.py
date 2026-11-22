@@ -54,6 +54,7 @@ def test_hash_is_stable_and_content_based():
         ("ifg", "max_opd_m", 0.005),
         ("noise", "modulation_efficiency", 1.5),
         ("ifg", "samples_per_ifg", 1),
+        ("static_sky", "nthreads", -1),
     ],
 )
 def test_invalid_values_are_rejected(section, key, value):

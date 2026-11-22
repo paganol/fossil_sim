@@ -136,7 +136,7 @@ def cycle_pointing(
 ) -> CyclePointing:
     """Spin axes, boresight and Solar Aspect Angle for one Cooler cycle."""
     axes = ring_spin_axes(config, orbit, timeline.cycle_id)
-    ring = timeline.ring_in_cycle.astype(np.int64)
+    ring = timeline.ring_in_cycle
     spin_phase_rad = (
         2 * np.pi * (timeline.ifg_in_scan + 0.5) / config.timeline.ifgs_per_scan
     )

@@ -185,9 +185,6 @@ def boosted_isotropic_background_mjy_sr(
 
 # Relative accuracy of ducc0's synthesis at arbitrary positions
 SYNTHESIS_EPSILON = 1e-9
-# Threads for the Static-sky synthesis (0 = all cores); ponytail: set explicitly
-# if several MPI ranks share a node
-DUCC0_NTHREADS = 0
 # Half step in ln ν of the central difference giving dI/d ln ν from pysm3:
 # for I ∝ ν^α the slope is off by α³ε²/6 · I (1.3e-4 I for α = 2)
 DOPPLER_LOG_STEP = 1e-2
@@ -328,6 +325,8 @@ class StaticSky:
     ) -> None:
         self.config = config
         self.freq_ghz = np.asarray(freq_ghz)
+        # one frequency per thread: faster than ducc0's threads on short calls
+        self._pool = ThreadPoolExecutor(config.nthreads or os.cpu_count())
         key = static_sky_cache_key(config, self.freq_ghz, fwhm_deg)
         self.path = Path(config.cache_dir) / f"static_sky_{key[:16]}.h5"
         if self.path.exists():
@@ -382,9 +381,7 @@ class StaticSky:
                 nthreads=1,
             )[0]
 
-        # one frequency per thread: faster than ducc0's threads on short calls
-        with ThreadPoolExecutor(DUCC0_NTHREADS or os.cpu_count()) as pool:
-            return np.column_stack(list(pool.map(synthesize, cube)))
+        return np.column_stack(list(self._pool.map(synthesize, cube)))
 
     def sample(self, direction: np.ndarray) -> np.ndarray:
         """Static sky along each direction, shape (n, n_freq), MJy/sr."""
