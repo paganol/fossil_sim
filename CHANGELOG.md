@@ -8,8 +8,11 @@ tagged releases.
 
 Changes on `main` that are not in a release yet.
 
+## 0.1.8 (2026-11-22)
+
 - Harden configuration and numerical edge cases found in the v0.1.7 review;
   the baseline outputs are unchanged.
+  Reference PR: [#21](https://github.com/paganol/fossil_sim/pull/21).
   - Build the frequency grid from an integer bin count, so rounding in
     `(max - min) / step` no longer adds a bin (e.g. 1–1.3 GHz in 0.1 GHz steps
     gave four bins).
@@ -31,17 +34,22 @@ Changes on `main` that are not in a release yet.
   the propagated variance, Mode-switch flags with and without Recycling, and
   an MPI check that also compares sky and raw spectral maps with noise. The
   MPI job is now required in CI.
+  Reference PR: [#21](https://github.com/paganol/fossil_sim/pull/21).
 - Compute the least-squares solver of each DU once per run in IFG-domain
   simulations and share it with the noise variance; it is public as
   `fossil_sim.ifg.differential_spectrum_solver` (results unchanged).
+  Reference PR: [#21](https://github.com/paganol/fossil_sim/pull/21).
 - Reuse one thread pool for the Static-sky synthesis, sized by the new
   optional `static_sky.nthreads` (0 = all cores, the previous behaviour).
   **Config change:** the configuration hash changes for every configuration.
+  Reference PR: [#21](https://github.com/paganol/fossil_sim/pull/21).
 - **TOD format change:** store `ring_in_cycle` and `ifg_in_scan` as `int32`,
   like the other indices of the IFG table.
+  Reference PR: [#21](https://github.com/paganol/fossil_sim/pull/21).
 - Derive the valid-data fraction in the spectral-maps notebook from the
   timeline instead of a hard-coded 69/87, and select hit maps by Mode name in
   the hit-map example.
+  Reference PR: [#21](https://github.com/paganol/fossil_sim/pull/21).
 
 ## 0.1.7 (2026-11-03)
 
