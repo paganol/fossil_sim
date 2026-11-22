@@ -235,12 +235,18 @@ class Config:
             if not (repo / ".git").exists():  # installed copy: no checkout to ask
                 raise OSError
             git_sha = subprocess.run(
-                ["git", "describe", "--always", "--dirty", "--abbrev=40"],
+                ["git", "rev-parse", "HEAD"],
                 capture_output=True,
                 text=True,
                 check=True,
                 cwd=repo,
             ).stdout.strip()
+            # tracked files only, as `git describe --dirty`
+            dirty = subprocess.run(
+                ["git", "diff", "--quiet", "HEAD"], check=False, cwd=repo
+            )
+            if dirty.returncode == 1:
+                git_sha += "-dirty"
         except (OSError, subprocess.CalledProcessError):
             git_sha = "unknown"
         return {
@@ -321,7 +327,9 @@ def validate(config: Config) -> None:
         raise ValueError("operations.recycling_data must be 'flagged' or 'off'")
     if config.ifg.opd_per_mirror_position <= 0 or config.ifg.max_opd_m <= 0:
         raise ValueError("ifg: max_opd_m and opd_per_mirror_position must be > 0")
-    opd_step_m = 2 * config.ifg.max_opd_m / max(config.ifg.samples_per_ifg - 1, 1)
+    if config.ifg.samples_per_ifg < 2:
+        raise ValueError("ifg.samples_per_ifg must be >= 2")
+    opd_step_m = 2 * config.ifg.max_opd_m / (config.ifg.samples_per_ifg - 1)
     if (
         config.ifg.simulate
         and opd_step_m * config.instrument.freq_max_ghz * 1e9 > 0.5 * C_LIGHT_M_S

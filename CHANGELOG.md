@@ -23,6 +23,14 @@ Changes on `main` that are not in a release yet.
     concurrent jobs sharing a cache directory do not collide.
   - Pin `zodipy<1.2` (the single-pass zodiacal evaluation uses its private API)
     and compare its shared parameters element-wise.
+  - Reject `ifg.samples_per_ifg < 2`.
+  - Record the full commit hash in `git_sha` (`git rev-parse HEAD`, plus
+    `-dirty` for uncommitted changes to tracked files) instead of the
+    `git describe` string, so reports show the commit rather than the last tag.
+- Extend test coverage: an end-to-end IFG-domain test that noisy maps follow
+  the propagated variance, Mode-switch flags with and without Recycling, and
+  an MPI check that also compares sky and raw spectral maps with noise. The
+  MPI job is now required in CI.
 
 ## 0.1.7 (2026-11-03)
 
