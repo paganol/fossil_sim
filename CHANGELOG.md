@@ -36,6 +36,12 @@ Changes on `main` that are not in a release yet.
   baseline, so outputs are unchanged.
   **Config change:** new optional keys; the configuration hash changes for
   every configuration.
+- Faster IFG-domain simulation: the modulated term of each sample is computed
+  only on the four sky-window points it interpolates from, and once per IFG
+  when the window is constant (sky of the IFG centre, both Ports on the BBIR);
+  fewer array copies in `ifg.du_interferograms`. Same results to rounding; a
+  baseline cycle on the 690-frequency generation grid goes from 135 s to 60 s
+  on CINECA Galileo100.
 
 ## 0.1.8 (2026-11-22)
 

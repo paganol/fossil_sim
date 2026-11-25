@@ -87,9 +87,13 @@ templates (on clusters, a node with network access).
 
 Cost, baseline with `sky_variation = true` on CINECA Galileo100, one thread
 per MPI rank: the 690-frequency cache takes 13 min to build (3 min for the 132
-bins); a Cooler cycle takes 150 s instead of 44 s, with a peak of 5.2 GB per
-rank instead of 2.6–4.2 GB. A full-mission run (882 cycles) on 48 ranks is
-then about 50 min instead of 14 min. The DU response maps each generation frequency to its nearest
+bins); a Cooler cycle takes about 60 s, with a peak of 5.2 GB per rank
+(2.6–4.2 GB on the instrument grid). A full-mission run (882 cycles) on 48
+ranks then takes about 20 min. Each sample interpolates the sky from four
+window points, so the modulated term is computed only on those, by groups of
+samples, and once per IFG when the window is constant (sky of the IFG centre,
+or both Ports on the BBIR); the rest of a cycle is mostly the Static-sky
+synthesis on the Ring circles and array operations on the sky windows. The DU response maps each generation frequency to its nearest
 bin: the gain of the bin, and the offset $\varepsilon B_\nu(T_\mathrm{inst})$
 at the generation frequency.
 
