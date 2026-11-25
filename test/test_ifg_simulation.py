@@ -70,6 +70,18 @@ def test_ifg_domain_without_sky_variation_matches_spectral(config, orbit, table)
     assert np.allclose(estimate[science], estimate_expected[science], rtol=1e-12)
 
 
+def test_without_sky_variation_circles_are_the_ifg_centres(config, orbit, table):
+    """Static sky read from the Ring circles = sampled at every IFG centre."""
+    model = SignalModel(ifg_config(config, sky_variation=False), orbit, None)
+    model.static_sky = ProfileSky(model.freq_ghz, blob(table["boresight"][10]))
+    circles = model.static_circles(0)
+    assert circles.shape[2] == config.timeline.ifgs_per_scan
+    from_circles = model.compute(table, circles=circles)[0]
+    per_ifg = model.compute(table)[0]
+    for name, s in per_ifg.items():
+        assert np.allclose(from_circles[name], s, rtol=0, atol=1e-9 * np.abs(s).max())
+
+
 @pytest.mark.parametrize("freq_ghz", [100.0, 300.0])
 def test_single_bin_ifg_matches_spectral(config, orbit, table, freq_ghz):
     cfg = replace(

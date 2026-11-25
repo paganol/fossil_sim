@@ -20,6 +20,11 @@ Changes on `main` that are not in a release yet.
   **Config change:** new `[response]` and `[calibration]` sections (optional,
   defaults as the baseline); the configuration hash changes for every
   configuration.
+- IFG domain without sky variation (`ifg.simulate = true`,
+  `ifg.sky_variation = false`): the Static sky is read from the Ring circles
+  at the IFG centres, as in the spectral domain, instead of being synthesized
+  from the alm at every IFG. Same outputs (to the synthesis accuracy), a
+  full-mission baseline run no longer exceeds 1 h on 48 ranks.
 
 ## 0.1.8 (2026-11-22)
 
