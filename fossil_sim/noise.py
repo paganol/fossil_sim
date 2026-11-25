@@ -175,8 +175,13 @@ def sky_estimate_noise_variance(
     freq_ghz: np.ndarray,
     dus: list[DetectorUnit],
     solvers: dict[str, np.ndarray] | None = None,
+    gain: dict[str, np.ndarray] | None = None,
 ) -> np.ndarray:
     """Noise variance per IFG of the sky estimate (mean over the DUs of each bin).
+
+    ``gain`` maps DU names to the calibration gain ĝ on the band bins
+    (:mod:`fossil_sim.response`): the detector noise is outside the gain, so
+    the calibrated variance is divided by ĝ².
 
     With simulated IFGs, propagate the independent sample noise through the
     actual least-squares fit: diag(C) = σ_sample² sum_j solver[k, j]².
@@ -191,11 +196,14 @@ def sky_estimate_noise_variance(
         mask = du.band_mask(freq_ghz)
         if config.ifg.simulate:
             solver = solvers[du.name]
-            variance[mask] += sample_noise_sigma(config, du) ** 2 * np.sum(
+            du_variance = sample_noise_sigma(config, du) ** 2 * np.sum(
                 solver**2, axis=1
             )
         else:
-            variance[mask] += noise_sigma_mjy_sr(config, du) ** 2
+            du_variance = noise_sigma_mjy_sr(config, du) ** 2
+        if gain is not None:
+            du_variance = du_variance / gain[du.name] ** 2
+        variance[mask] += du_variance
         count[mask] += 1
     with np.errstate(invalid="ignore", divide="ignore"):
         return variance / count**2

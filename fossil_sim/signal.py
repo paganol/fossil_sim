@@ -3,7 +3,8 @@
 Port k sees the sky when its BSM points to the sky (Mode ``Bxy``, CONTEXT.md),
 otherwise the BBIR spectrum of that Port (ideal blackbody at the Port
 temperature, emissivity 1). The L output measures +(I₁ − I₂), the R output
-−(I₁ − I₂), each DU restricted to its band.
+−(I₁ − I₂), each DU restricted to its band; the DU response (gain, offset) is
+applied in :mod:`fossil_sim.response`.
 
 In B11 the cross term between the two telescopes (Martin-Puplett interference
 of orthogonal polarizations from two separate apertures, odd in OPD) is
@@ -66,9 +67,10 @@ def sky_estimate_mjy_sr(
     bbir_mjy_sr: np.ndarray,
     mode: np.ndarray,
 ) -> np.ndarray:
-    """Sky spectrum reconstructed from the DUs, assuming perfect calibration.
+    """Sky spectrum reconstructed from calibrated DU spectra s (I₁ − I₂).
 
-    Only science Modes (one Port on the sky) give an estimate; other IFGs are
+    ``du_spectra`` are calibrated (:meth:`fossil_sim.response.DUResponse.calibrate`)
+    and the BBIR temperatures are assumed known exactly. Only science Modes (one Port on the sky) give an estimate; other IFGs are
     NaN. For each DU, Ŝ = B_k + σ s d with B_k the BBIR of the Port on the
     BBIR and σ = +1 (B10) or −1 (B01); L and R estimates are averaged.
     """

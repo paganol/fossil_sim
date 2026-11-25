@@ -128,6 +128,8 @@ def du_interferograms(
     modulation_efficiency: float = 1.0,
     *,
     freq_step_ghz: float | None = None,
+    gain: np.ndarray | None = None,
+    offset_mjy_sr: np.ndarray | None = None,
 ) -> np.ndarray:
     """Interferograms of one DU for a block of IFGs, (n_ifg, n_samples).
 
@@ -135,11 +137,20 @@ def du_interferograms(
     window of each IFG, (n_ifg, n_window, n_freq); ``weights`` maps the window
     to the samples (:func:`sample_weights`). Same units as :func:`interferogram`.
     ``freq_step_ghz`` defaults to the grid spacing; supply it for a single bin.
+    ``gain`` and ``offset_mjy_sr`` (on the band bins) give the DU response of
+    :mod:`fossil_sim.response`: modulated amplitude g (s (I₁ − I₂) + o), and
+    g also on the unmodulated term.
     """
     mask = du.band_mask(freq_ghz)
     freq_step_ghz = _frequency_step_ghz(freq_ghz, freq_step_ghz)
-    total = (port1_mjy_sr[..., mask] + port2_mjy_sr[..., mask]).sum(axis=-1)
+    port_sum = port1_mjy_sr[..., mask] + port2_mjy_sr[..., mask]
     difference = port1_mjy_sr[..., mask] - port2_mjy_sr[..., mask]
+    if offset_mjy_sr is not None:
+        difference = difference + du.output_sign * offset_mjy_sr
+    if gain is not None:
+        port_sum = port_sum * gain
+        difference = difference * gain
+    total = port_sum.sum(axis=-1)
     # modulated part on every (window point, sample), then interpolated
     modulated = difference @ modulation_matrix(freq_ghz[mask], opd_m).T
     ifgs = total @ weights.T + du.output_sign * np.einsum(

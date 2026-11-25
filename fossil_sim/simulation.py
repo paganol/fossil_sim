@@ -38,6 +38,7 @@ from .operations import (
     operation_flags,
 )
 from .orbit import L2Orbit
+from .response import calibration_solution, true_response
 from .scanning import cycle_pointing, ring_circles, ring_spin_axes
 from .signal import (
     bbir_spectra_mjy_sr,
@@ -107,10 +108,12 @@ def build_ifg_table(config: Config, orbit: L2Orbit, cycle_id: int) -> np.ndarray
 
 
 class SignalModel:
-    """Signal of each IFG as DU differential spectra, optionally with white noise.
+    """Signal of each IFG as measured DU spectra, optionally with white noise.
 
-    Spectral domain by default; with ``ifg.simulate`` the spectra are
-    recovered from simulated interferograms.
+    The DU spectra include the true DU response (gain, offset) of
+    :mod:`fossil_sim.response`; the sky estimate uses the calibration
+    solution. Spectral domain by default; with ``ifg.simulate`` the spectra
+    are recovered from simulated interferograms.
     """
 
     def __init__(
@@ -124,6 +127,8 @@ class SignalModel:
             ZodiacalLight(config, orbit, self.freq_ghz) if config.zodi.enabled else None
         )
         self.dus = detector_units(config.instrument)
+        self.response = true_response(config, self.freq_ghz, self.dus)
+        self.calibration = calibration_solution(config, self.freq_ghz, self.dus)
         self.solar_velocity_km_s = solar_velocity_km_s(config.sky)
         self.beam_factor = (
             dipole_beam_factor(config.instrument.beam_fwhm_deg)
@@ -293,12 +298,13 @@ class SignalModel:
         noise: dict | None = None,
         circles: np.ndarray | None = None,
     ) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray]:
-        """DU differential spectra, sky estimate and BBIR spectra for a block of IFGs.
+        """Measured DU spectra, sky estimate and BBIR spectra for a block of IFGs.
 
+        The DU spectra are g (s (I₁ − I₂) + o) + n (:mod:`fossil_sim.response`);
         ``noise`` (from :meth:`noise_for_cycle`, sliced to the block) is added
         to the DU spectra, or to the IFG samples with ``ifg.simulate``, hence
-        propagated to the sky estimate. ``circles`` comes from
-        :meth:`static_circles`.
+        propagated to the sky estimate, made from the spectra calibrated with
+        :attr:`calibration`. ``circles`` comes from :meth:`static_circles`.
         """
         bbir = bbir_spectra_mjy_sr(self.freq_ghz, table["bbir_port_temperature_k"])
         if self.config.ifg.simulate:
@@ -308,11 +314,17 @@ class SignalModel:
         else:
             sky = self.sky_mjy_sr(table, zodi, circles=circles)
             port1, port2 = port_spectra_mjy_sr(sky, bbir, table["mode"])
-            du_spectra = du_differential_spectra(self.freq_ghz, port1, port2, self.dus)
+            du_spectra = self.response.apply(
+                du_differential_spectra(self.freq_ghz, port1, port2, self.dus)
+            )
             if noise is not None:
                 du_spectra = {name: s + noise[name] for name, s in du_spectra.items()}
         estimate = sky_estimate_mjy_sr(
-            self.freq_ghz, du_spectra, self.dus, bbir, table["mode"]
+            self.freq_ghz,
+            self.calibration.calibrate(du_spectra),
+            self.dus,
+            bbir,
+            table["mode"],
         )
         return du_spectra, estimate, bbir
 
@@ -341,6 +353,8 @@ class SignalModel:
                 self.sample_weights,
                 m,
                 freq_step_ghz=freq_step_ghz,
+                gain=self.response.gain[du.name],
+                offset_mjy_sr=self.response.offset_mjy_sr[du.name],
             )
             if noise is not None:
                 ifgs += noise[du.name]
@@ -366,15 +380,25 @@ class SignalModel:
 def write_cycle_tod(
     path: Path, config: Config, model: SignalModel, table, du_spectra
 ) -> None:
-    """Write one Cooler cycle (IFG table + DU spectra) to HDF5."""
+    """Write one Cooler cycle (IFG table + measured DU spectra) to HDF5.
+
+    The spectra are uncalibrated (:mod:`fossil_sim.response`); the true gain
+    and offset of each DU are stored under ``response/``.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(path, "w") as f:
         f.create_dataset("ifg_table", data=table)
         f.create_dataset("freq_ghz", data=model.freq_ghz)
         for du in model.dus:
             dataset = f.create_dataset(f"spectra/{du.name}", data=du_spectra[du.name])
-            dataset.attrs["unit"] = "MJy/sr"
+            dataset.attrs["unit"] = "MJy/sr (uncalibrated: nominal response)"
             dataset.attrs["freq_ghz"] = model.freq_ghz[du.band_mask(model.freq_ghz)]
+            f.create_dataset(
+                f"response/gain/{du.name}", data=model.response.gain[du.name]
+            )
+            f.create_dataset(
+                f"response/offset/{du.name}", data=model.response.offset_mjy_sr[du.name]
+            )
         for key, value in config.provenance().items():
             f.attrs[key] = str(value)
 
@@ -447,7 +471,11 @@ def run_simulation(
             config.maps.nsides,
             model.freq_ghz,
             sky_estimate_noise_variance(
-                config, model.freq_ghz, model.dus, model.solvers
+                config,
+                model.freq_ghz,
+                model.dus,
+                model.solvers,
+                gain=model.calibration.gain,
             )
             if config.noise.enabled
             else None,

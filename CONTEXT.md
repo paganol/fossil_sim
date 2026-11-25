@@ -74,6 +74,18 @@ _Avoid_: configuration, state
 One of LF-L, HF-L, LF-R, HF-R: an FTS output (L/R) split by the 200 GHz dichroic.
 _Avoid_: detector, channel
 
+**Gain**:
+The response of a DU relative to the nominal one, per frequency bin; dimensionless, 1 = nominal.
+_Avoid_: responsivity (detector-level, W/V), calibration factor
+
+**Offset**:
+A spectrum added to the differential spectrum of a DU before the gain, referred to the sky (MJy/sr); here the emission imbalance between the arms.
+_Avoid_: baseline, bias
+
+**Calibration solution**:
+The gain and offset assumed when reconstructing the sky, (ĝ, ô) per DU and bin; it differs from the true response by the calibration error.
+_Avoid_: calibration (alone, ambiguous between the process and its result)
+
 ### Sky
 
 **Isotropic background**:
