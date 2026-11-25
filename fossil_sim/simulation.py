@@ -163,17 +163,18 @@ class SignalModel:
         """Static sky along the circle of each Ring of a cycle, shared by its Scans.
 
         Shape (n_parts, n_rings, n_points, n_freq): I, then the barycentric
-        and cosmological K when ``static_sky.doppler``. Spectral domain: the
-        IFG centres (n_points = ifgs_per_scan), for :meth:`sky_mjy_sr`. IFG
-        domain following the sky during the IFG: a fine grid of
-        SKY_GRID_PER_IFG × ifgs_per_scan points, point g at spin phase
-        2π g / n_points, for :meth:`sky_windows`. None otherwise.
+        and cosmological K when ``static_sky.doppler``. IFG domain following
+        the sky during the IFG: a fine grid of SKY_GRID_PER_IFG ×
+        ifgs_per_scan points, point g at spin phase 2π g / n_points, for
+        :meth:`sky_windows`. Otherwise (spectral domain, or IFG domain with
+        the sky of the IFG centre): the IFG centres (n_points =
+        ifgs_per_scan), for :meth:`sky_mjy_sr`. None without a Static sky.
         """
         ifg = self.config.ifg
-        if self.static_sky is None or (ifg.simulate and not ifg.sky_variation):
+        if self.static_sky is None:
             return None
         axes = ring_spin_axes(self.config, self.orbit, cycle_id)
-        if ifg.simulate:
+        if ifg.simulate and ifg.sky_variation:
             circles = ring_circles(
                 self.config, axes, SKY_GRID_PER_IFG, phase_offset=0.0
             )
@@ -242,12 +243,13 @@ class SignalModel:
         The window is the grid of :func:`fossil_sim.ifg.sample_weights`. The
         Static sky comes from ``circles`` (:meth:`static_circles`); the other
         components, smooth on the 0.5° of an IFG, keep their value at the IFG
-        centre, as does β·n̂ in the Static-sky Doppler. Without ``circles`` the
+        centre, as does β·n̂ in the Static-sky Doppler. Without ``circles``, or
+        with ``ifg.sky_variation`` false (circles at the IFG centres), the
         whole sky is that of the IFG centre.
         """
         n_window = SKY_GRID_PER_IFG + 3
-        if circles is None:
-            sky = self.sky_mjy_sr(table, zodi)
+        if circles is None or not self.config.ifg.sky_variation:
+            sky = self.sky_mjy_sr(table, zodi, circles=circles)
             return np.broadcast_to(sky[:, None], (sky.shape[0], n_window, sky.shape[1]))
         index = (
             table["ifg_in_scan"][:, None] * SKY_GRID_PER_IFG - 1 + np.arange(n_window)
