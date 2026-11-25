@@ -34,6 +34,7 @@ from .operations import (
     FLAG_SAA_EXCEEDED,
     bbir_temperatures_k,
     cycle_timeline,
+    mode_sky_ports,
     num_cycles,
     operation_flags,
 )
@@ -361,6 +362,14 @@ class SignalModel:
         (n_ifg, samples_per_ifg).
         """
         port1, port2 = port_spectra_mjy_sr(sky_windows, bbir[:, :, None], table["mode"])
+        # Port spectra constant over the window: sky of the IFG centre (a
+        # broadcast window) or both Ports on the BBIR
+        port1_on_sky, port2_on_sky = mode_sky_ports(table["mode"])
+        constant_window = (
+            np.ones(len(table), dtype=bool)
+            if sky_windows.strides[1] == 0
+            else ~(port1_on_sky | port2_on_sky)
+        )
         m = self.config.noise.modulation_efficiency
         step = self.config.ifg.generation_freq_step_ghz
         freq_step_ghz = self.config.instrument.freq_step_ghz if step is None else step
@@ -378,6 +387,7 @@ class SignalModel:
                 gain=self.ifg_response.gain[du.name],
                 offset_mjy_sr=self.ifg_response.offset_mjy_sr[du.name],
                 transmission=self.transmission[du.name],
+                constant_window=constant_window,
             )
             if noise is not None:
                 ifgs += noise[du.name]

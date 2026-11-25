@@ -2,10 +2,12 @@ import numpy as np
 import pytest
 
 from fossil_sim.ifg import (
+    _interpolated_modulation,
     differential_spectrum,
     interferogram,
     mirror_positions_m,
     opd_samples_m,
+    sample_weights,
 )
 from fossil_sim.instrument import detector_units, frequency_grid_ghz
 from fossil_sim.spectra import blackbody_mjy_sr, y_distortion_mjy_sr
@@ -114,3 +116,25 @@ def test_frequency_grid_excludes_maximum(config, fmin, fmax, step, size):
     assert grid.size == size
     assert grid[-1] < fmax
     np.testing.assert_allclose(grid, fmin + step * np.arange(size), rtol=0, atol=0)
+
+
+@pytest.mark.parametrize("zeros", [False, True])
+def test_interpolated_modulation_equals_the_direct_product(zeros):
+    """Grouped and constant-window shortcuts equal the product on every window point."""
+    rng = np.random.default_rng(1)
+    n_ifg, n_freq, n_samples, grid = 12, 40, 64, 8
+    weights = sample_weights(n_samples, grid)
+    if zeros:  # rows starting or ending with an exact zero form their own groups
+        weights[3, np.flatnonzero(weights[3])[0]] = 0.0
+        weights[10, np.flatnonzero(weights[10])[-1]] = 0.0
+    difference = rng.standard_normal((grid + 3, n_ifg, n_freq))  # window-major
+    difference[:, ::3] = difference[:1, ::3]  # constant windows
+    modulation = rng.standard_normal((n_samples, n_freq))
+    direct = np.einsum("jw,wij->ij", weights, difference @ modulation.T)
+    detected = _interpolated_modulation(difference, modulation, weights)
+    np.testing.assert_allclose(detected, direct, rtol=1e-12, atol=1e-12)
+    # flags from the caller; a varying window flagged as varying is always exact
+    flags = np.zeros(n_ifg, dtype=bool)
+    flags[::6] = True
+    given = _interpolated_modulation(difference, modulation, weights, flags)
+    np.testing.assert_allclose(given, direct, rtol=1e-12, atol=1e-12)

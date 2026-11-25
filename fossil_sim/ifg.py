@@ -131,6 +131,7 @@ def du_interferograms(
     gain: np.ndarray | None = None,
     offset_mjy_sr: np.ndarray | None = None,
     transmission: np.ndarray | None = None,
+    constant_window: np.ndarray | None = None,
 ) -> np.ndarray:
     """Interferograms of one DU for a block of IFGs, (n_ifg, n_samples).
 
@@ -143,32 +144,104 @@ def du_interferograms(
     the band bins are those where it is positive. ``gain`` and
     ``offset_mjy_sr`` (on the band bins) give the DU response of
     :mod:`fossil_sim.response`: modulated amplitude g (s (I₁ − I₂) + o), and
-    g also on the unmodulated term.
+    g also on the unmodulated term. ``constant_window`` flags the IFGs whose
+    Port spectra do not change over the window (detected when not given).
     """
     if transmission is None:
         mask = du.band_mask(freq_ghz)
-        weight = None
+        factor = np.ones(np.count_nonzero(mask))
     else:
         mask = transmission > 0
-        weight = transmission[mask]
-    freq_step_ghz = _frequency_step_ghz(freq_ghz, freq_step_ghz)
-    port_sum = port1_mjy_sr[..., mask] + port2_mjy_sr[..., mask]
-    difference = port1_mjy_sr[..., mask] - port2_mjy_sr[..., mask]
-    if offset_mjy_sr is not None:
-        difference = difference + du.output_sign * offset_mjy_sr
+        factor = transmission[mask]
     if gain is not None:
-        port_sum = port_sum * gain
-        difference = difference * gain
-    if weight is not None:
-        port_sum = port_sum * weight
-        difference = difference * weight
-    total = port_sum.sum(axis=-1)
-    # modulated part on every (window point, sample), then interpolated
-    modulated = difference @ modulation_matrix(freq_ghz[mask], opd_m).T
-    ifgs = total @ weights.T + du.output_sign * np.einsum(
-        "jw,iwj->ij", weights, modulated
+        factor = factor * gain
+    freq_step_ghz = _frequency_step_ghz(freq_ghz, freq_step_ghz)
+    band = _band_index(mask)
+    port1, port2 = port1_mjy_sr[..., band], port2_mjy_sr[..., band]
+    total = port1 @ factor + port2 @ factor
+    # window-major layout: the window points of a group of samples are contiguous
+    n_ifg, n_window, _ = port1.shape
+    difference = np.empty((n_window, n_ifg, factor.size))
+    np.subtract(port1.transpose(1, 0, 2), port2.transpose(1, 0, 2), out=difference)
+    if offset_mjy_sr is not None:
+        difference += du.output_sign * offset_mjy_sr
+    difference *= factor
+    modulated = _interpolated_modulation(
+        difference,
+        modulation_matrix(freq_ghz[mask], opd_m),
+        weights,
+        constant_window,
     )
+    ifgs = total @ weights.T + du.output_sign * modulated
     return modulation_efficiency * freq_step_ghz * ifgs
+
+
+def _band_index(mask: np.ndarray) -> slice | np.ndarray:
+    """``mask`` as a slice when its True entries are contiguous (a view, not a copy)."""
+    index = np.flatnonzero(mask)
+    if index.size and index[-1] - index[0] + 1 == index.size:
+        return slice(index[0], index[-1] + 1)
+    return mask
+
+
+def _window_groups(weights: np.ndarray) -> list[tuple[slice | np.ndarray, slice]]:
+    """Samples grouped by the window points they use: (samples, window columns).
+
+    Each row of ``weights`` is non-zero on a few consecutive columns (four
+    for :func:`sample_weights`); samples starting on the same column form a
+    group, with the columns spanned by its rows.
+    """
+    nonzero = weights != 0
+    first = nonzero.argmax(axis=1)
+    last = weights.shape[1] - 1 - nonzero[:, ::-1].argmax(axis=1)
+    groups = []
+    for start in np.unique(first):
+        samples = np.flatnonzero(first == start)
+        if np.array_equal(samples, np.arange(samples[0], samples[-1] + 1)):
+            samples = slice(samples[0], samples[-1] + 1)
+        groups.append((samples, slice(start, last[first == start].max() + 1)))
+    return groups
+
+
+def _interpolated_modulation(
+    difference: np.ndarray,
+    modulation: np.ndarray,
+    weights: np.ndarray,
+    constant_window: np.ndarray | None = None,
+) -> np.ndarray:
+    """Σ_w weights[j, w] Σ_k difference[w, i, k] modulation[j, k], (n_ifg, n_samples).
+
+    ``difference`` is window-major, (n_window, n_ifg, n_freq). Equal, to
+    rounding, to ``einsum("jw,wij->ij", weights, difference @ modulation.T)``,
+    without the products on window points a sample does not use: IFGs whose
+    window is constant (``constant_window``, detected when not given) take
+    one product, the others one per group of samples (:func:`_window_groups`)
+    on its few window points.
+    """
+    _, n_ifg, n_freq = difference.shape
+    n_samples = modulation.shape[0]
+    if constant_window is None:
+        constant_window = np.all(difference == difference[:1], axis=(0, 2))
+    out = np.empty((n_ifg, n_samples))
+    if constant_window.any():
+        out[constant_window] = (
+            difference[0, constant_window] @ modulation.T
+        ) * weights.sum(axis=1)
+    varying = np.flatnonzero(~constant_window)
+    if not varying.size:
+        return out
+    part = difference if varying.size == n_ifg else difference[:, varying]
+    result = np.empty((varying.size, n_samples))
+    for samples, columns in _window_groups(weights):
+        window = part[columns]  # contiguous (window points, IFGs, frequencies)
+        products = (window.reshape(-1, n_freq) @ modulation[samples].T).reshape(
+            window.shape[0], varying.size, -1
+        )
+        result[:, samples] = np.einsum(
+            "jw,wij->ij", weights[samples, columns], products
+        )
+    out[varying] = result
+    return out
 
 
 def differential_spectrum_solver(
