@@ -8,6 +8,8 @@ tagged releases.
 
 Changes on `main` that are not in a release yet.
 
+## 0.1.9 (2026-11-25)
+
 - Add a response for each DU, d = g (s (I₁ − I₂) + o) + n: gain per DU with a
   per-bin Gaussian fluctuation fixed by the seed, and an offset from the
   emission imbalance between the arms, ε B_ν(T_inst) (new `[response]`
@@ -20,11 +22,13 @@ Changes on `main` that are not in a release yet.
   **Config change:** new `[response]` and `[calibration]` sections (optional,
   defaults as the baseline); the configuration hash changes for every
   configuration.
+  Reference PR: [#24](https://github.com/paganol/fossil_sim/pull/24).
 - IFG domain without sky variation (`ifg.simulate = true`,
   `ifg.sky_variation = false`): the Static sky is read from the Ring circles
   at the IFG centres, as in the spectral domain, instead of being synthesized
   from the alm at every IFG. Same outputs (to the synthesis accuracy), a
   full-mission baseline run no longer exceeds 1 h on 48 ranks.
+  Reference PR: [#25](https://github.com/paganol/fossil_sim/pull/25).
 - IFG generation on a finer, wider frequency grid than the fit:
   `ifg.generation_freq_step_ghz` and `ifg.generation_freq_max_ghz` (e.g. 3 GHz
   up to 3825 GHz, below the Nyquist frequency of the OPD sampling), and band
@@ -36,12 +40,14 @@ Changes on `main` that are not in a release yet.
   baseline, so outputs are unchanged.
   **Config change:** new optional keys; the configuration hash changes for
   every configuration.
+  Reference PR: [#26](https://github.com/paganol/fossil_sim/pull/26).
 - Faster IFG-domain simulation: the modulated term of each sample is computed
   only on the four sky-window points it interpolates from, and once per IFG
   when the window is constant (sky of the IFG centre, both Ports on the BBIR);
   fewer array copies in `ifg.du_interferograms`. Same results to rounding; a
   baseline cycle on the 690-frequency generation grid goes from 135 s to 60 s
   on CINECA Galileo100.
+  Reference PR: [#27](https://github.com/paganol/fossil_sim/pull/27).
 
 ## 0.1.8 (2026-11-22)
 
