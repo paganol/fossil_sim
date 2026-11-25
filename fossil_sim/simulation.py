@@ -21,7 +21,7 @@ from .input_sky import (
     solar_velocity_km_s,
     static_doppler_mjy_sr,
 )
-from .instrument import detector_units, frequency_grid_ghz
+from .instrument import detector_units, frequency_grid_ghz, sky_frequency_grid_ghz
 from .mapmaking import DIAGNOSTIC_OUTPUTS, HitMaps, SpectralMaps
 from .noise import (
     SampleNoise,
@@ -38,7 +38,7 @@ from .operations import (
     operation_flags,
 )
 from .orbit import L2Orbit
-from .response import calibration_solution, true_response
+from .response import calibration_solution, generation_response, true_response
 from .scanning import cycle_pointing, ring_circles, ring_spin_axes
 from .signal import (
     bbir_spectra_mjy_sr,
@@ -113,7 +113,9 @@ class SignalModel:
     The DU spectra include the true DU response (gain, offset) of
     :mod:`fossil_sim.response`; the sky estimate uses the calibration
     solution. Spectral domain by default; with ``ifg.simulate`` the spectra
-    are recovered from simulated interferograms.
+    are recovered from simulated interferograms, generated on
+    :attr:`sky_freq_ghz` (:func:`~fossil_sim.instrument.generation_frequency_grid_ghz`)
+    and fitted on the instrument bins :attr:`freq_ghz`.
     """
 
     def __init__(
@@ -123,8 +125,12 @@ class SignalModel:
         self.orbit = orbit
         self.static_sky = static_sky
         self.freq_ghz = frequency_grid_ghz(config.instrument)
+        # sky, Static sky, zodi and BBIR entering the instrument
+        self.sky_freq_ghz = sky_frequency_grid_ghz(config)
         self.zodi = (
-            ZodiacalLight(config, orbit, self.freq_ghz) if config.zodi.enabled else None
+            ZodiacalLight(config, orbit, self.sky_freq_ghz)
+            if config.zodi.enabled
+            else None
         )
         self.dus = detector_units(config.instrument)
         self.response = true_response(config, self.freq_ghz, self.dus)
@@ -142,6 +148,13 @@ class SignalModel:
             )
             # least-squares solver of each DU, shared with the noise variance
             self.solvers = ifg_solvers(config, self.freq_ghz, self.dus)
+            self.ifg_response = generation_response(
+                config, self.freq_ghz, self.response, self.sky_freq_ghz, self.dus
+            )
+            fraction = config.instrument.band_edge_fraction
+            self.transmission = {
+                du.name: du.transmission(self.sky_freq_ghz, fraction) for du in self.dus
+            }
         else:
             self.solvers = None
 
@@ -203,7 +216,7 @@ class SignalModel:
         direction = table["boresight"]
         orbital_km_s = self.orbit.position_velocity(table["time_mid_s"])[1]
         sky = boosted_isotropic_background_mjy_sr(
-            self.freq_ghz,
+            self.sky_freq_ghz,
             direction,
             self.velocity_km_s(orbital_km_s),
             self.config.sky,
@@ -310,8 +323,11 @@ class SignalModel:
         """
         bbir = bbir_spectra_mjy_sr(self.freq_ghz, table["bbir_port_temperature_k"])
         if self.config.ifg.simulate:
+            sky_bbir = bbir_spectra_mjy_sr(
+                self.sky_freq_ghz, table["bbir_port_temperature_k"]
+            )
             du_spectra = self.ifg_du_spectra(
-                table, self.sky_windows(table, zodi, circles), bbir, noise
+                table, self.sky_windows(table, zodi, circles), sky_bbir, noise
             )
         else:
             sky = self.sky_mjy_sr(table, zodi, circles=circles)
@@ -339,15 +355,19 @@ class SignalModel:
     ) -> dict[str, np.ndarray]:
         """DU differential spectra recovered from simulated interferograms.
 
-        ``noise`` holds the sample noise of each DU, (n_ifg, samples_per_ifg).
+        ``sky_windows`` and ``bbir`` are on :attr:`sky_freq_ghz`, the grid the
+        IFGs are generated on; the spectra are fitted on the band bins of
+        :attr:`freq_ghz`. ``noise`` holds the sample noise of each DU,
+        (n_ifg, samples_per_ifg).
         """
         port1, port2 = port_spectra_mjy_sr(sky_windows, bbir[:, :, None], table["mode"])
         m = self.config.noise.modulation_efficiency
-        freq_step_ghz = self.config.instrument.freq_step_ghz
+        step = self.config.ifg.generation_freq_step_ghz
+        freq_step_ghz = self.config.instrument.freq_step_ghz if step is None else step
         result = {}
         for du in self.dus:
             ifgs = du_interferograms(
-                self.freq_ghz,
+                self.sky_freq_ghz,
                 port1,
                 port2,
                 du,
@@ -355,8 +375,9 @@ class SignalModel:
                 self.sample_weights,
                 m,
                 freq_step_ghz=freq_step_ghz,
-                gain=self.response.gain[du.name],
-                offset_mjy_sr=self.response.offset_mjy_sr[du.name],
+                gain=self.ifg_response.gain[du.name],
+                offset_mjy_sr=self.ifg_response.offset_mjy_sr[du.name],
+                transmission=self.transmission[du.name],
             )
             if noise is not None:
                 ifgs += noise[du.name]
@@ -571,7 +592,7 @@ def _load_static_sky(config: Config, comm) -> StaticSky:
     """Build the Static sky on rank 0 (if not cached), then load it everywhere."""
     args = (
         config.static_sky,
-        frequency_grid_ghz(config.instrument),
+        sky_frequency_grid_ghz(config),
         config.instrument.beam_fwhm_deg,
     )
     if comm is None:

@@ -71,6 +71,11 @@ band_max_ghz = 2000.0                     # M8 proposal §2.1
 dichroic_split_ghz = 200.0                # M8 proposal §2.1 (LF/HF split at each output);
                                           # Step2 had 300 GHz
 beam_fwhm_deg = 1.6                       # Step2
+band_edge_fraction = 0.0                  # TBD — top-hat bands; > 0: cosine edges of width
+                                          # fraction × edge frequency at band_min,
+                                          # dichroic_split and band_max (e.g. 0.1, placeholder
+                                          # until the filter specifications); IFG domain only
+                                          # (docs: Interferogram)
 
 [sky]
 # Isotropic backgrounds (CONTEXT.md), evaluated per IFG with the exact Boost
@@ -174,3 +179,9 @@ simulate = false                          # false: spectral domain (sky + Gaussi
                                           # squares (docs: Interferogram)
 sky_variation = true                      # with simulate: Static sky follows the boresight
                                           # during the IFG (false: sky at the IFG centre)
+# Generation grid (both or neither; default: the instrument grid, IFGs exact on the fit
+# basis). IFGs generated on k × step up to max (where some DU transmits) and fitted on the
+# instrument bins: bin averaging, leakage and out-of-band signal (docs: Interferogram).
+# Max below Nyquist, c / (2 OPD step) = 3830 GHz at baseline. Example:
+# generation_freq_step_ghz = 3.0
+# generation_freq_max_ghz = 3825.0

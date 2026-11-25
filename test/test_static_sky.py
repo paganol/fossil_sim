@@ -142,7 +142,7 @@ def test_doppler_velocities_per_frame(config, orbit, tmp_path):
     table["time_mid_s"] = 86400.0 * np.arange(4)
     orbital = orbit.position_velocity(table["time_mid_s"])[1]
     model = SignalModel(cfg, orbit, OnlyDoppler(0))
-    model.freq_ghz = freq_ghz
+    model.freq_ghz = model.sky_freq_ghz = freq_ghz
     for part, velocity in ((0, orbital), (1, model.solar_velocity_km_s + orbital)):
         model.static_sky = OnlyDoppler(part)
         expected = static_doppler_mjy_sr(np.ones((4, 2)), table["boresight"], velocity)

@@ -8,6 +8,7 @@ from fossil_sim.noise import sky_estimate_noise_variance
 from fossil_sim.operations import mode_sky_ports
 from fossil_sim.response import (
     calibration_solution,
+    generation_response,
     nominal_response,
     true_response,
 )
@@ -123,6 +124,10 @@ def test_calibration_solution_choice(config):
 def test_true_calibration_recovers_the_ideal_sky(config, orbit, table, simulate):
     ideal = SignalModel(response_config(config, gain_rms=0.0, simulate=simulate), orbit)
     ideal.response = nominal_response(ideal.freq_ghz, ideal.dus)
+    if simulate:
+        ideal.ifg_response = generation_response(
+            ideal.config, ideal.freq_ghz, ideal.response, ideal.sky_freq_ghz, ideal.dus
+        )
     model = SignalModel(response_config(config, "true", simulate=simulate), orbit)
     reference, sky_reference, _ = ideal.compute(table)
     measured, sky, _ = model.compute(table)

@@ -120,6 +120,8 @@ class InstrumentConfig:
     band_max_ghz: float
     dichroic_split_ghz: float
     beam_fwhm_deg: float
+    # width of the cosine band edges / edge frequency, 0 = top-hat (IFG domain only)
+    band_edge_fraction: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -192,6 +194,9 @@ class IFGConfig:
     samples_per_ifg: int
     simulate: bool
     sky_variation: bool
+    # frequency grid the IFGs are generated on (None: the instrument grid)
+    generation_freq_step_ghz: float | None = None
+    generation_freq_max_ghz: float | None = None
 
 
 @dataclass(frozen=True)
@@ -358,6 +363,7 @@ def validate(config: Config) -> None:
         raise ValueError(
             "ifg.samples_per_ifg too few to sample instrument.freq_max_ghz"
         )
+    _validate_generation_grid(config, opd_step_m)
     st = config.static_sky
     for model in st.models:
         if model.startswith(FORBIDDEN_STATIC_MODELS):
@@ -422,3 +428,53 @@ def validate(config: Config) -> None:
     if config.calibration.solution not in CALIBRATION_SOLUTIONS:
         raise ValueError(f"calibration.solution must be one of {CALIBRATION_SOLUTIONS}")
     Time(config.simulation.mission_start, scale="tdb")  # raises if malformed
+
+
+def _is_multiple(value: float, step: float) -> bool:
+    """``value`` is an integer multiple of ``step``, to rounding."""
+    ratio = value / step
+    return abs(ratio - round(ratio)) < 1e-9 * max(1.0, abs(ratio))
+
+
+def _validate_generation_grid(config: Config, opd_step_m: float) -> None:
+    """IFG generation grid and band edges (docs: Interferogram)."""
+    ifg, inst = config.ifg, config.instrument
+    step, max_ghz = ifg.generation_freq_step_ghz, ifg.generation_freq_max_ghz
+    if (step is None) != (max_ghz is None):
+        raise ValueError(
+            "ifg: set both generation_freq_step_ghz and generation_freq_max_ghz, "
+            "or neither"
+        )
+    if step is not None:
+        if step <= 0:
+            raise ValueError("ifg.generation_freq_step_ghz must be > 0")
+        # every instrument bin centre is a generation frequency
+        if not (
+            _is_multiple(inst.freq_step_ghz, step)
+            and _is_multiple(inst.freq_min_ghz, step)
+        ):
+            raise ValueError(
+                "ifg.generation_freq_step_ghz must divide instrument.freq_step_ghz "
+                "and instrument.freq_min_ghz"
+            )
+        if max_ghz < inst.freq_max_ghz:
+            raise ValueError(
+                "ifg.generation_freq_max_ghz must be >= instrument.freq_max_ghz"
+            )
+        if ifg.simulate and opd_step_m * max_ghz * 1e9 > 0.5 * C_LIGHT_M_S:
+            raise ValueError(
+                "ifg.generation_freq_max_ghz above the Nyquist frequency of the "
+                "OPD sampling, c / (2 OPD step)"
+            )
+    if not ifg.simulate and (step is not None or inst.band_edge_fraction > 0):
+        warnings.warn(
+            "ifg.generation_freq_* and instrument.band_edge_fraction act only in "
+            "the IFG domain (ifg.simulate = true): ignored in the spectral domain",
+            stacklevel=3,
+        )
+    f = inst.band_edge_fraction
+    lo, split, hi = inst.band_min_ghz, inst.dichroic_split_ghz, inst.band_max_ghz
+    if f < 0 or f * (lo + split) / 2 > split - lo or f * (split + hi) / 2 > hi - split:
+        raise ValueError(
+            "instrument.band_edge_fraction must be >= 0, with non-overlapping edges"
+        )

@@ -25,6 +25,17 @@ Changes on `main` that are not in a release yet.
   at the IFG centres, as in the spectral domain, instead of being synthesized
   from the alm at every IFG. Same outputs (to the synthesis accuracy), a
   full-mission baseline run no longer exceeds 1 h on 48 ranks.
+- IFG generation on a finer, wider frequency grid than the fit:
+  `ifg.generation_freq_step_ghz` and `ifg.generation_freq_max_ghz` (e.g. 3 GHz
+  up to 3825 GHz, below the Nyquist frequency of the OPD sampling), and band
+  transmissions with cosine edges, `instrument.band_edge_fraction`. The sky
+  entering the instrument (and the Static-sky cache) is evaluated on the
+  generation grid; the fit, the sky estimate and the maps stay on the
+  instrument bins. Shows bin averaging, leakage of the unapodized fit and
+  out-of-band signal (docs: Interferogram). IFG domain only; off in the
+  baseline, so outputs are unchanged.
+  **Config change:** new optional keys; the configuration hash changes for
+  every configuration.
 
 ## 0.1.8 (2026-11-22)
 
