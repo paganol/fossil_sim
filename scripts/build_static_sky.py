@@ -13,7 +13,7 @@ from pathlib import Path
 
 from fossil_sim.config import load_config
 from fossil_sim.input_sky import StaticSky
-from fossil_sim.instrument import frequency_grid_ghz
+from fossil_sim.instrument import sky_frequency_grid_ghz
 
 path = (
     Path(sys.argv[1])
@@ -24,7 +24,7 @@ config = load_config(path)
 start = time.perf_counter()
 sky = StaticSky(
     config.static_sky,
-    frequency_grid_ghz(config.instrument),
+    sky_frequency_grid_ghz(config),
     config.instrument.beam_fwhm_deg,
 )
 print(f"{sky.path}: {sky.alm.shape}, {time.perf_counter() - start:.0f} s")

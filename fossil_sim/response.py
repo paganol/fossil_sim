@@ -86,6 +86,43 @@ def true_response(
     return DUResponse(gain, offset)
 
 
+def generation_response(
+    config: Config,
+    freq_ghz: np.ndarray,
+    response: DUResponse,
+    generation_freq_ghz: np.ndarray,
+    dus: list[DetectorUnit],
+) -> DUResponse:
+    """``response`` (on the band bins of ``freq_ghz``) on the IFG generation grid.
+
+    The bins of each DU are the generation frequencies it transmits
+    (:meth:`~fossil_sim.instrument.DetectorUnit.transmission`), each mapped
+    to its nearest band bin. The gain is that of the bin, so its fluctuation
+    is constant within a bin; the offset, ε B_ν(T_inst), is that of the bin
+    scaled by B_ν(T_inst) / B_bin(T_inst), exact at every frequency.
+    """
+    rc, fraction = config.response, config.instrument.band_edge_fraction
+    gain, offset = {}, {}
+    for i, du in enumerate(dus):
+        bins_ghz = freq_ghz[du.band_mask(freq_ghz)]
+        fine_ghz = generation_freq_ghz[
+            du.transmission(generation_freq_ghz, fraction) > 0
+        ]
+        if not bins_ghz.size:  # a DU without bins on a narrow grid
+            gain[du.name] = np.full(fine_ghz.size, rc.gain[i])
+            offset[du.name] = np.zeros(fine_ghz.size)
+            continue
+        nearest = np.abs(fine_ghz[:, None] - bins_ghz[None, :]).argmin(axis=1)
+        gain[du.name] = response.gain[du.name][nearest]
+        t_k = rc.instrument_temperature_k
+        offset[du.name] = (
+            response.offset_mjy_sr[du.name][nearest]
+            * blackbody_mjy_sr(fine_ghz, t_k)
+            / blackbody_mjy_sr(bins_ghz[nearest], t_k)
+        )
+    return DUResponse(gain, offset)
+
+
 def calibration_solution(
     config: Config, freq_ghz: np.ndarray, dus: list[DetectorUnit]
 ) -> DUResponse:

@@ -130,6 +130,7 @@ def du_interferograms(
     freq_step_ghz: float | None = None,
     gain: np.ndarray | None = None,
     offset_mjy_sr: np.ndarray | None = None,
+    transmission: np.ndarray | None = None,
 ) -> np.ndarray:
     """Interferograms of one DU for a block of IFGs, (n_ifg, n_samples).
 
@@ -137,11 +138,19 @@ def du_interferograms(
     window of each IFG, (n_ifg, n_window, n_freq); ``weights`` maps the window
     to the samples (:func:`sample_weights`). Same units as :func:`interferogram`.
     ``freq_step_ghz`` defaults to the grid spacing; supply it for a single bin.
-    ``gain`` and ``offset_mjy_sr`` (on the band bins) give the DU response of
+    ``transmission`` (on the whole grid, default: the top-hat
+    :meth:`~fossil_sim.instrument.DetectorUnit.band_mask`) weights both terms;
+    the band bins are those where it is positive. ``gain`` and
+    ``offset_mjy_sr`` (on the band bins) give the DU response of
     :mod:`fossil_sim.response`: modulated amplitude g (s (I₁ − I₂) + o), and
     g also on the unmodulated term.
     """
-    mask = du.band_mask(freq_ghz)
+    if transmission is None:
+        mask = du.band_mask(freq_ghz)
+        weight = None
+    else:
+        mask = transmission > 0
+        weight = transmission[mask]
     freq_step_ghz = _frequency_step_ghz(freq_ghz, freq_step_ghz)
     port_sum = port1_mjy_sr[..., mask] + port2_mjy_sr[..., mask]
     difference = port1_mjy_sr[..., mask] - port2_mjy_sr[..., mask]
@@ -150,6 +159,9 @@ def du_interferograms(
     if gain is not None:
         port_sum = port_sum * gain
         difference = difference * gain
+    if weight is not None:
+        port_sum = port_sum * weight
+        difference = difference * weight
     total = port_sum.sum(axis=-1)
     # modulated part on every (window point, sample), then interpolated
     modulated = difference @ modulation_matrix(freq_ghz[mask], opd_m).T

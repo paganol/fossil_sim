@@ -57,6 +57,69 @@ for a single bin it must be supplied explicitly. The simulation always passes
 `instrument.freq_step_ghz`, so single-bin configurations are supported in both
 the spectral and IFG domains.
 
+## Generation grid and band edges
+
+The fit above is exact only because, by default, the interferogram is built
+on the same frequencies as the fit, one value per bin: a discrete input on the
+fit basis. The sky is continuous, and an instrument with resolution
+$c / 2x_\mathrm{max}$ sees each bin through its line shape, with leakage
+between bins and from outside the band. With
+`ifg.generation_freq_step_ghz` and `ifg.generation_freq_max_ghz` the
+interferogram is generated on a finer, wider grid
+({func}`fossil_sim.instrument.generation_frequency_grid_ghz`): the multiples
+$k\,\delta\nu$ up to the maximum where some DU transmits, each point standing
+for a band $\delta\nu$ wide, so $\Delta\nu$ in $P(x)$ becomes $\delta\nu$.
+The fit stays on the instrument bins, whose centres are among the generation
+frequencies. Both keys are off in the baseline (the generation grid is the
+instrument grid); a typical choice is $\delta\nu$ = 3 GHz up to 3825 GHz,
+below the Nyquist frequency of the OPD sampling ($c / 2\Delta x$ = 3830 GHz
+at baseline), checked by the configuration.
+
+The sky entering the instrument (Isotropic backgrounds, Static sky, zodiacal
+light, BBIR) is evaluated on the generation grid, so the Static-sky cache is
+built on it. The cache key includes the frequencies: a new generation grid
+(or switching `ifg.simulate` on with one set) needs a new cache, about
+$3 \times 16$ bytes per frequency and $a_{\ell m}$ ($I$ and the two Doppler
+$K$ cubes), 2.4 GB for 690 frequencies at $\ell_\mathrm{max}$ = 383 against
+0.5 GB for the 132 bins. Build it once before parallel runs with
+`scripts/build_static_sky.py config.toml`, where pysm3 can download its
+templates (on clusters, a node with network access).
+
+Cost, baseline with `sky_variation = true` on CINECA Galileo100, one thread
+per MPI rank: the 690-frequency cache takes 13 min to build (3 min for the 132
+bins); a Cooler cycle takes 150 s instead of 44 s, with a peak of 5.2 GB per
+rank instead of 2.6–4.2 GB. A full-mission run (882 cycles) on 48 ranks is
+then about 50 min instead of 14 min. The DU response maps each generation frequency to its nearest
+bin: the gain of the bin, and the offset $\varepsilon B_\nu(T_\mathrm{inst})$
+at the generation frequency.
+
+The band mask $w$ becomes a transmission with cosine edges
+({meth}`fossil_sim.instrument.DetectorUnit.transmission`): at each edge $e$
+(band limits and dichroic split) it varies as $\tfrac12(1 + \sin\pi t)$,
+$t = (\nu - e) / (f e)$, over $|t| \le \tfrac12$, with $f$ =
+`instrument.band_edge_fraction` (0 = top-hat, the baseline; 0.1 is a
+placeholder until the filter specifications). The two DUs of an output share
+the dichroic edge and sum to 1. Band edges and the generation grid act only in
+the IFG domain; the spectral domain keeps one value per bin and top-hat bands.
+
+The size of these effects, measured on the Isotropic backgrounds alone (no
+Static sky, no zodiacal light, no noise), in science IFGs of the first cycle,
+generation grid of 3 GHz up to 3825 GHz (`test/test_generation_grid.py`),
+relative to the largest value of each bin:
+
+- top-hat bands: the recovered bins differ from the bin values of the spectral
+  domain by the average of the spectrum over each bin, $10^{-5}$–$10^{-3}$ up
+  to 1.5 THz and about $10^{-2}$ on the Wien tail of the CMB near 1.9 THz. The
+  bin at 1995 GHz, cut by the top-hat at 2000 GHz, loses about 20 % of its
+  power;
+- cosine edges ($f$ = 0.1) instead of top-hat: up to 3 % on the bins next to
+  the 2000 GHz edge, and on every other bin, through the unapodized least
+  squares, $2\times10^{-5}$–$4\times10^{-3}$, decreasing away from the edges
+  ($5\times10^{-4}$ MJy/sr at 1 THz).
+
+These are effects of the instrument model, not of the sky: the Static sky
+adds structure (dust, synchrotron) but no new mechanism.
+
 ## IFG-domain simulation
 
 With `ifg.simulate = true` each IFG of each DU is built sample by sample, white
