@@ -40,6 +40,27 @@ with `ducc0.sht.synthesis_general` (relative accuracy $10^{-9}$). No pixel
 window is involved. A faster nearest-pixel sampling of maps at
 $N_\mathrm{side}$ is available for quick runs.
 
+The synthesis does not run once per frequency: the spectra of the pysm3
+models span a space of few dimensions, so each cube is factorized in
+frequency,
+
+$$
+a_{\ell m}(\nu_k) \simeq \sum_{j=1}^{K} c_j(\nu_k)\, b^{(j)}_{\ell m},
+$$
+
+from the SVD of the cube with each frequency normalized to its own norm
+({func}`fossil_sim.input_sky.compress_alm_cube`). $K$ is the smallest rank
+that keeps the map of every frequency within `rank_epsilon` of its rms
+(default $10^{-9}$, the accuracy of the synthesis): with real $c_j$ the $b^{(j)}$ are the alm of real
+maps, and only the $K$ basis maps are synthesized. At baseline (models c1,
+d2, s1, a1, f1; 690 frequencies up to 2.1 THz) $K$ = 37 for $I$, 49 and 1
+for the barycentric and cosmological $K$ cubes: 87 syntheses instead of 2070.
+The factorization is cached next to the cubes, one file per threshold
+(`*_low_rank_1e-09.h5`, about two minutes of SVD to build), and once cached
+the cubes are not loaded. `rank_epsilon = 0` turns it off: one synthesis per
+frequency, and in the IFG domain the sky windows on the full generation grid
+(the reference, about three times slower on the 690-frequency grid).
+
 Since the Scans of a Ring retrace the same circle, the boresight of an IFG
 depends only on its Ring and its phase in the Scan. In the spectral domain the
 cubes are therefore sampled once per cycle on the $N_I$ IFG centres of each

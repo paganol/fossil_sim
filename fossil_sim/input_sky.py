@@ -301,8 +301,45 @@ def build_static_sky_alm(
     return cube, doppler
 
 
+def compress_alm_cube(
+    cube: np.ndarray, lmax: int, epsilon: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """Low-rank factorization in frequency of an alm cube, (n_freq, n_alm).
+
+    Returns real ``coefficients`` (n_freq, K) and alm ``basis`` (K, n_alm)
+    with ``coefficients @ basis`` equal to ``cube`` within ``epsilon`` times
+    the rms of each frequency map (map-space rms, through the alm norm with m >
+    0 counted twice). From the SVD of the cube with each frequency normalized,
+    real and imaginary parts as separate columns: the real coefficients keep
+    the basis a valid alm of a real map, so that synthesis commutes with the sum.
+    """
+    m = np.concatenate([np.full(lmax + 1 - mm, mm) for mm in range(lmax + 1)])
+    weight = np.where(m > 0, np.sqrt(2.0), 1.0)
+    weighted = cube * weight
+    x = np.concatenate([weighted.real, weighted.imag], axis=1)
+    norms = np.linalg.norm(x, axis=1)
+    norms[norms == 0] = 1.0
+    u, s, vh = np.linalg.svd(x / norms[:, None], full_matrices=False)
+    # relative residual of each frequency keeping k components: tail[:, k]
+    tail = np.sqrt(np.cumsum(((u * s) ** 2)[:, ::-1], axis=1)[:, ::-1])
+    above = np.flatnonzero(tail.max(axis=0) > epsilon)
+    rank = max(1, above[-1] + 1 if above.size else 0)
+    coefficients = norms[:, None] * u[:, :rank] * s[:rank]
+    n_alm = cube.shape[1]
+    basis = (vh[:rank, :n_alm] + 1j * vh[:rank, n_alm:]) / weight
+    return coefficients, basis
+
+
 class StaticSky:
     """Static sky cubes, loaded from (or written to) the cache, sampled per direction.
+
+    With ``sampling = "alm"`` and ``rank_epsilon > 0`` each cube is
+    synthesized through its low-rank factorization in frequency
+    (:func:`compress_alm_cube`, accuracy ``rank_epsilon``), cached next to the
+    cubes: a few tens of syntheses instead of one per frequency (about 37 for
+    I and 49 + 1 for the Doppler K at 10⁻⁹ on the 690-frequency grid), and
+    the cubes are not loaded at all once the factorization is cached. With
+    ``rank_epsilon = 0``, one synthesis per frequency.
 
     Parameters
     ----------
@@ -325,55 +362,109 @@ class StaticSky:
     ) -> None:
         self.config = config
         self.freq_ghz = np.asarray(freq_ghz)
-        # one frequency per thread: faster than ducc0's threads on short calls
+        # one synthesis per thread: faster than ducc0's threads on short calls
         self._pool = ThreadPoolExecutor(config.nthreads or os.cpu_count())
         key = static_sky_cache_key(config, self.freq_ghz, fwhm_deg)
         self.path = Path(config.cache_dir) / f"static_sky_{key[:16]}.h5"
-        if self.path.exists():
-            with h5py.File(self.path, "r") as f:
-                if f.attrs["cache_key"] != key:
-                    raise RuntimeError(f"Cache key mismatch in {self.path}")
-                self.alm = f["alm"][()]
-                self.doppler_alm = f["doppler_alm"][()] if "doppler_alm" in f else None
-        else:
-            self.alm, self.doppler_alm = build_static_sky_alm(
-                config, self.freq_ghz, fwhm_deg, emission
-            )
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            # one temporary file per process: concurrent writers do not collide
-            tmp = self.path.with_name(f"{self.path.name}.{uuid.uuid4().hex}.tmp")
-            with h5py.File(tmp, "w") as f:
-                f.create_dataset("alm", data=self.alm)
-                if self.doppler_alm is not None:
-                    f.create_dataset("doppler_alm", data=self.doppler_alm)
-                f.create_dataset("freq_ghz", data=self.freq_ghz)
-                f.attrs["cache_key"] = key
-                f.attrs["unit"] = "MJy/sr"
-                f.attrs["coord"] = "J2000 ecliptic"
-            tmp.replace(self.path)
+        self.low_rank_path = self.path.with_name(
+            f"{self.path.stem}_low_rank_{config.rank_epsilon:.0e}.h5"
+        )
+        self.alm = self.doppler_alm = None
         self.maps = self.doppler_maps = None
+        # (coefficients, basis) of I, then of the two Doppler K cubes
+        self.low_rank = None
+        factorize = config.sampling == "alm" and config.rank_epsilon > 0
+        if factorize and self._read_low_rank(key):
+            return
+        self._load_or_build(key, fwhm_deg, emission)
         if config.sampling == "nearest":
             self.maps = self._alm2map(self.alm)
             if self.doppler_alm is not None:
                 self.doppler_maps = np.stack(
                     [self._alm2map(c) for c in self.doppler_alm]
                 )
+        if not factorize:
+            return
+        cubes = (
+            [self.alm] if self.doppler_alm is None else [self.alm, *self.doppler_alm]
+        )
+        self.low_rank = [
+            compress_alm_cube(c[:, 0], config.lmax, config.rank_epsilon) for c in cubes
+        ]
+        _write_atomically(
+            self.low_rank_path,
+            {
+                f"{name}_{i}": array
+                for i, part in enumerate(self.low_rank)
+                for name, array in zip(("coefficients", "basis"), part, strict=True)
+            },
+            {"cache_key": key, "rank_epsilon": config.rank_epsilon},
+        )
+
+    def _load_or_build(self, key, fwhm_deg, emission) -> None:
+        if self.path.exists():
+            with h5py.File(self.path, "r") as f:
+                if f.attrs["cache_key"] != key:
+                    raise RuntimeError(f"Cache key mismatch in {self.path}")
+                self.alm = f["alm"][()]
+                self.doppler_alm = f["doppler_alm"][()] if "doppler_alm" in f else None
+            return
+        self.alm, self.doppler_alm = build_static_sky_alm(
+            self.config, self.freq_ghz, fwhm_deg, emission
+        )
+        datasets = {"alm": self.alm, "freq_ghz": self.freq_ghz}
+        if self.doppler_alm is not None:
+            datasets["doppler_alm"] = self.doppler_alm
+        _write_atomically(
+            self.path,
+            datasets,
+            {"cache_key": key, "unit": "MJy/sr", "coord": "J2000 ecliptic"},
+        )
+
+    def _read_low_rank(self, key: str) -> bool:
+        if not self.low_rank_path.exists():
+            return False
+        with h5py.File(self.low_rank_path, "r") as f:
+            stored = f.attrs["rank_epsilon"]
+            if f.attrs["cache_key"] != key or stored != self.config.rank_epsilon:
+                return False
+            parts = 3 if self.config.doppler else 1
+            self.low_rank = [
+                (f[f"coefficients_{i}"][()], f[f"basis_{i}"][()]) for i in range(parts)
+            ]
+        return True
+
+    @property
+    def ranks(self) -> list[int]:
+        """Number of syntheses per cube (I, then the Doppler K cubes)."""
+        if self.low_rank is None:
+            return []
+        return [basis.shape[0] for _, basis in self.low_rank]
 
     def _alm2map(self, cube: np.ndarray) -> np.ndarray:
         nside, lmax = self.config.nside, self.config.lmax
         return np.stack([hp.alm2map(a[0], nside, lmax=lmax) for a in cube])
 
-    def _synthesize(self, cube, maps, direction: np.ndarray) -> np.ndarray:
-        """One cube along each direction, shape (n, n_freq)."""
-        theta, phi = hp.vec2ang(direction)
-        if maps is not None:
+    def _synthesize(self, part: int, direction: np.ndarray) -> np.ndarray:
+        """Cube ``part`` (0: I, 1–2: Doppler K) along each direction, (n, n_freq)."""
+        if self.low_rank is not None:
+            coefficients, basis = self.low_rank[part]
+            return self._synthesize_alm(basis, direction) @ coefficients.T
+        if self.maps is not None:
+            theta, phi = hp.vec2ang(direction)
+            maps = self.maps if part == 0 else self.doppler_maps[part - 1]
             pixels = hp.ang2pix(self.config.nside, theta, phi)
             return maps[:, pixels].T.copy()
-        loc = np.column_stack([theta, phi])
+        cube = self.alm if part == 0 else self.doppler_alm[part - 1]
+        return self._synthesize_alm(cube[:, 0], direction)
+
+    def _synthesize_alm(self, alms: np.ndarray, direction: np.ndarray) -> np.ndarray:
+        """Maps of the alm rows ``alms`` (m, n_alm) along each direction, (n, m)."""
+        loc = np.column_stack(hp.vec2ang(direction))
 
         def synthesize(alm):
             return ducc0.sht.synthesis_general(
-                alm=alm,
+                alm=alm[None],
                 spin=0,
                 lmax=self.config.lmax,
                 loc=loc,
@@ -381,21 +472,41 @@ class StaticSky:
                 nthreads=1,
             )[0]
 
-        return np.column_stack(list(self._pool.map(synthesize, cube)))
+        return np.column_stack(list(self._pool.map(synthesize, alms)))
+
+    def amplitudes(self, direction: np.ndarray) -> list[np.ndarray]:
+        """Low-rank amplitudes of each cube (I, then the Doppler K), each (n, K).
+
+        The cube is ``amplitudes @ spectra.T``, with ``spectra`` the
+        coefficients in :attr:`low_rank` (n_freq, K). Requires ``sampling = "alm"``
+        and ``rank_epsilon > 0``.
+        """
+        if self.low_rank is None:
+            raise ValueError(
+                "Low-rank amplitudes need sampling = 'alm' and rank_epsilon > 0"
+            )
+        return [self._synthesize_alm(basis, direction) for _, basis in self.low_rank]
 
     def sample(self, direction: np.ndarray) -> np.ndarray:
         """Static sky along each direction, shape (n, n_freq), MJy/sr."""
-        return self._synthesize(self.alm, self.maps, direction)
+        return self._synthesize(0, direction)
 
     def sample_doppler(self, direction: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """K = 3 I − dI/d ln ν of the barycentric and cosmological parts, each (n, n_freq)."""
-        if self.doppler_alm is None:
+        if not self.config.doppler:
             raise ValueError("Static sky built with doppler = false")
-        maps = [None, None] if self.doppler_maps is None else self.doppler_maps
-        return tuple(
-            self._synthesize(cube, m, direction)
-            for cube, m in zip(self.doppler_alm, maps)
-        )
+        return self._synthesize(1, direction), self._synthesize(2, direction)
+
+
+def _write_atomically(path: Path, datasets: dict, attrs: dict) -> None:
+    """HDF5 file through a per-process temporary: concurrent writers do not collide."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
+    with h5py.File(tmp, "w") as f:
+        for name, data in datasets.items():
+            f.create_dataset(name, data=data)
+        f.attrs.update(attrs)
+    tmp.replace(path)
 
 
 def static_doppler_mjy_sr(
@@ -407,9 +518,14 @@ def static_doppler_mjy_sr(
     ``velocity_km_s`` the observer velocity in its frame, (n, 3) or (3,).
     ``k_mjy_sr`` has n as first axis, (n, n_freq) or (n, ..., n_freq).
     """
-    velocity_km_s = np.broadcast_to(velocity_km_s, direction.shape)
-    beta_dot_n = np.sum(velocity_km_s * direction, axis=1) / C_LIGHT_KM_S
+    beta_dot_n = doppler_factor(direction, velocity_km_s)
     return beta_dot_n.reshape((-1,) + (1,) * (k_mjy_sr.ndim - 1)) * k_mjy_sr
+
+
+def doppler_factor(direction: np.ndarray, velocity_km_s: np.ndarray) -> np.ndarray:
+    """β·n̂ of the first-order Doppler term, (n,); ``velocity_km_s`` (n, 3) or (3,)."""
+    velocity_km_s = np.broadcast_to(velocity_km_s, direction.shape)
+    return np.sum(velocity_km_s * direction, axis=1) / C_LIGHT_KM_S
 
 
 # Directions per block in the single-pass zodiacal light (~48 MB at 132 bins)

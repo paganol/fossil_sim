@@ -12,12 +12,19 @@ import h5py
 import numpy as np
 
 from .config import MODES, Config
-from .ifg import du_interferograms, opd_samples_m, sample_weights
+from .ifg import (
+    du_interferograms,
+    du_interferograms_low_rank,
+    opd_samples_m,
+    sample_weights,
+    static_basis_interferograms,
+)
 from .input_sky import (
     StaticSky,
     ZodiacalLight,
     boosted_isotropic_background_mjy_sr,
     dipole_beam_factor,
+    doppler_factor,
     solar_velocity_km_s,
     static_doppler_mjy_sr,
 )
@@ -108,6 +115,25 @@ def build_ifg_table(config: Config, orbit: L2Orbit, cycle_id: int) -> np.ndarray
     return table
 
 
+@dataclass
+class StaticCircles:
+    """Static sky on the Ring circles of a cycle, low-rank in frequency.
+
+    IFG domain with sky variation and a Static sky with a low-rank
+    factorization (:meth:`StaticSky.amplitudes`): the sky along the circles
+    is ``amplitudes @ spectra.T``, the Doppler parts scaled by β·n̂.
+    """
+
+    # (n_rings, n_points, K): amplitudes of I, then of the Doppler K cubes
+    amplitudes: np.ndarray
+    # (n_freq, K): basis spectra of all parts, side by side
+    spectra: np.ndarray
+    # K of each part: I, then barycentric and cosmological K (if any)
+    sizes: list[int]
+    # per DU: IFG terms of each basis spectrum (ifg.static_basis_interferograms)
+    basis: dict[str, tuple[np.ndarray, np.ndarray]]
+
+
 class SignalModel:
     """Signal of each IFG as measured DU spectra, optionally with white noise.
 
@@ -183,11 +209,36 @@ class SignalModel:
         :meth:`sky_windows`. Otherwise (spectral domain, or IFG domain with
         the sky of the IFG centre): the IFG centres (n_points =
         ifgs_per_scan), for :meth:`sky_mjy_sr`. None without a Static sky.
+        IFG domain following the sky with a Static sky that has a low-rank
+        factorization: :class:`StaticCircles`, amplitudes on the fine grid.
         """
         ifg = self.config.ifg
         if self.static_sky is None:
             return None
         axes = ring_spin_axes(self.config, self.orbit, cycle_id)
+        low_rank = getattr(self.static_sky, "low_rank", None) is not None
+        if ifg.simulate and ifg.sky_variation and low_rank:
+            circles = ring_circles(
+                self.config, axes, SKY_GRID_PER_IFG, phase_offset=0.0
+            )
+            parts = self.static_sky.amplitudes(circles.reshape(-1, 3))
+            spectra = np.hstack([c for c, _ in self.static_sky.low_rank])
+            return StaticCircles(
+                amplitudes=np.hstack(parts).reshape(*circles.shape[:2], -1),
+                spectra=spectra,
+                sizes=[p.shape[1] for p in parts],
+                basis={
+                    du.name: static_basis_interferograms(
+                        self.sky_freq_ghz,
+                        spectra,
+                        du,
+                        self.opd_m,
+                        gain=self.ifg_response.gain[du.name],
+                        transmission=self.transmission[du.name],
+                    )
+                    for du in self.dus
+                },
+            )
         if ifg.simulate and ifg.sky_variation:
             circles = ring_circles(
                 self.config, axes, SKY_GRID_PER_IFG, phase_offset=0.0
@@ -262,6 +313,10 @@ class SignalModel:
         whole sky is that of the IFG centre.
         """
         n_window = SKY_GRID_PER_IFG + 3
+        if isinstance(circles, StaticCircles):
+            window = self.static_window(table, circles)
+            static = window.transpose(1, 0, 2) @ circles.spectra.T
+            return self.sky_mjy_sr(table, zodi, include_static=False)[:, None] + static
         if circles is None or not self.config.ifg.sky_variation:
             sky = self.sky_mjy_sr(table, zodi, circles=circles)
             return np.broadcast_to(sky[:, None], (sky.shape[0], n_window, sky.shape[1]))
@@ -278,6 +333,31 @@ class SignalModel:
                 parts[2], direction, self.solar_velocity_km_s + orbital_km_s
             )
         return sky
+
+    def static_window(self, table: np.ndarray, circles: StaticCircles) -> np.ndarray:
+        """Static-sky amplitudes on the window of each IFG, (n_window, n, K).
+
+        Window-major; the Doppler parts are scaled by β·n̂ at the IFG centre
+        (orbital velocity for the barycentric part, solar + orbital for the
+        cosmological one), as in :meth:`sky_windows`.
+        """
+        n_window = SKY_GRID_PER_IFG + 3
+        index = (
+            table["ifg_in_scan"][None, :] * SKY_GRID_PER_IFG
+            - 1
+            + np.arange(n_window)[:, None]
+        ) % circles.amplitudes.shape[1]
+        window = circles.amplitudes[table["ring_in_cycle"][None, :], index]
+        if len(circles.sizes) == 3:
+            direction = table["boresight"]
+            orbital_km_s = self.orbit.position_velocity(table["time_mid_s"])[1]
+            k0, k1, _ = circles.sizes
+            for part, velocity in (
+                (slice(k0, k0 + k1), orbital_km_s),
+                (slice(k0 + k1, None), self.solar_velocity_km_s + orbital_km_s),
+            ):
+                window[..., part] *= doppler_factor(direction, velocity)[None, :, None]
+        return window
 
     def noise_for_cycle(
         self, cycle_id: int, table: np.ndarray
@@ -327,9 +407,14 @@ class SignalModel:
             sky_bbir = bbir_spectra_mjy_sr(
                 self.sky_freq_ghz, table["bbir_port_temperature_k"]
             )
-            du_spectra = self.ifg_du_spectra(
-                table, self.sky_windows(table, zodi, circles), sky_bbir, noise
-            )
+            if isinstance(circles, StaticCircles):
+                du_spectra = self.ifg_du_spectra_low_rank(
+                    table, zodi, circles, sky_bbir, noise
+                )
+            else:
+                du_spectra = self.ifg_du_spectra(
+                    table, self.sky_windows(table, zodi, circles), sky_bbir, noise
+                )
         else:
             sky = self.sky_mjy_sr(table, zodi, circles=circles)
             port1, port2 = port_spectra_mjy_sr(sky, bbir, table["mode"])
@@ -389,10 +474,60 @@ class SignalModel:
                 transmission=self.transmission[du.name],
                 constant_window=constant_window,
             )
-            if noise is not None:
-                ifgs += noise[du.name]
-            result[du.name] = ifgs @ self.solvers[du.name].T
+            result[du.name] = self._fit(du, ifgs, noise)
         return result
+
+    def ifg_du_spectra_low_rank(
+        self,
+        table: np.ndarray,
+        zodi: np.ndarray | None,
+        circles: StaticCircles,
+        bbir: np.ndarray,
+        noise: dict[str, np.ndarray] | None = None,
+    ) -> dict[str, np.ndarray]:
+        """As :meth:`ifg_du_spectra`, with the Static sky in its low-rank basis.
+
+        The rest of the sky (Isotropic backgrounds, zodiacal light) and the
+        BBIR keep their value at the IFG centre, as in :meth:`sky_windows`;
+        the Static sky enters through the IFGs of its basis spectra
+        (:func:`fossil_sim.ifg.du_interferograms_low_rank`).
+        """
+        sky = self.sky_mjy_sr(table, zodi, include_static=False)
+        port1, port2 = port_spectra_mjy_sr(sky, bbir, table["mode"])
+        port1_on_sky, port2_on_sky = mode_sky_ports(table["mode"])
+        sky_sign = port1_on_sky.astype(float) - port2_on_sky
+        sky_ports = port1_on_sky.astype(float) + port2_on_sky
+        window = self.static_window(table, circles)
+        m = self.config.noise.modulation_efficiency
+        step = self.config.ifg.generation_freq_step_ghz
+        freq_step_ghz = self.config.instrument.freq_step_ghz if step is None else step
+        result = {}
+        for du in self.dus:
+            ifgs = du_interferograms_low_rank(
+                self.sky_freq_ghz,
+                port1,
+                port2,
+                window,
+                sky_sign,
+                sky_ports,
+                circles.basis[du.name],
+                du,
+                self.opd_m,
+                self.sample_weights,
+                m,
+                freq_step_ghz=freq_step_ghz,
+                gain=self.ifg_response.gain[du.name],
+                offset_mjy_sr=self.ifg_response.offset_mjy_sr[du.name],
+                transmission=self.transmission[du.name],
+            )
+            result[du.name] = self._fit(du, ifgs, noise)
+        return result
+
+    def _fit(self, du, ifgs: np.ndarray, noise: dict | None) -> np.ndarray:
+        """Add the sample noise of the DU and fit its band spectra."""
+        if noise is not None:
+            ifgs += noise[du.name]
+        return ifgs @ self.solvers[du.name].T
 
     def output_spectra(
         self, du_spectra: dict[str, np.ndarray]

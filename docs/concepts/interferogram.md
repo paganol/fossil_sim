@@ -92,8 +92,30 @@ bins); a Cooler cycle takes about 60 s, with a peak of 5.2 GB per rank
 ranks then takes about 20 min. Each sample interpolates the sky from four
 window points, so the modulated term is computed only on those, by groups of
 samples, and once per IFG when the window is constant (sky of the IFG centre,
-or both Ports on the BBIR); the rest of a cycle is mostly the Static-sky
-synthesis on the Ring circles and array operations on the sky windows. The DU response maps each generation frequency to its nearest
+or both Ports on the BBIR).
+
+When the Static sky has its low-rank factorization ({doc}`static_sky`,
+`sampling = "alm"`), the IFGs avoid the sky windows on the generation grid
+altogether. The model is linear in the Port spectra, so each Port that sees
+the sky is split into the rest of the sky (Isotropic backgrounds, zodiacal
+light, at the IFG centre) and the Static sky $\sum_k a_k U_k(\nu)$, with the
+amplitudes $a_k$ on the window (Doppler parts scaled by
+$\boldsymbol\beta\cdot\hat{\mathbf n}$). The IFG of each basis spectrum
+$U_k$ is computed once per cycle and DU
+({func}`fossil_sim.ifg.static_basis_interferograms`), and the Static-sky term
+of every IFG is their combination with the interpolated amplitudes
+({func}`fossil_sim.ifg.du_interferograms_low_rank`): a cost per sample
+proportional to $K \approx 87$ instead of the about 640 band frequencies, with
+no approximation beyond the factorization. Measured with cosine edges
+(`band_edge_fraction = 0.1`) and noise on the 690-frequency grid: a cycle on a
+single rank went from 63 s to 44 s with the low-rank synthesis, then to 17 s
+with the basis IFGs; the full-mission run on 48 ranks from 32 min to 24 min,
+then to 10 min (peak 7.9 → 5.8 GB per rank), maps equal to
+$10^{-5}\sigma$ in every pixel. Without the factorization (`rank_epsilon = 0`,
+or nearest-pixel sampling) the sky windows are built on the generation grid
+as before.
+
+The DU response maps each generation frequency to its nearest
 bin: the gain of the bin, and the offset $\varepsilon B_\nu(T_\mathrm{inst})$
 at the generation frequency.
 
