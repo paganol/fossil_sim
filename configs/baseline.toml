@@ -156,6 +156,13 @@ modulation_efficiency = 0.5               # Coulon et al. Eq. 11–12: Martin-Pu
 optics_emissivity = [0.01]                # Coulon et al. Table 2 reference (1 %, 4.5 K):
 optics_temperature_k = [4.5]              # one grey body; the optics has ~20 elements (TBD)
 recycling_noise_factor = 3.0              # TBD — placeholder: noise × 3 in the Recycling window
+# 1/f detector noise on the IFG samples (ifg.simulate only; docs: Noise),
+# PSD σ² [(f² + f_knee²) / (f² + f_min²)]^(α/2) with σ the white level above;
+# a bin at ν sits at the electrical frequency ν v_OPD / c (1 Hz at 30 GHz here)
+fknee_lf_mhz = 0.0                        # TBD — 0: white noise
+fknee_hf_mhz = 0.0                        # TBD — 0: white noise
+one_over_f_alpha = 1.0                    # TBD
+one_over_f_fmin_hz = 1e-5                 # TBD — placeholder (as litebird_sim)
 
 [response]
 # True response of each DU, d = g (s (I1 − I2) + o) + n (docs: Instrument and

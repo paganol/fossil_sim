@@ -12,9 +12,13 @@ from fossil_sim.ifg import (
 )
 from fossil_sim.instrument import detector_units, frequency_grid_ghz
 from fossil_sim.noise import (
+    SampleNoise,
     du_nep_w_sqrt_hz,
     du_noise_mjy_sr,
+    ifg_solvers,
     noise_sigma_mjy_sr,
+    one_over_f_variance_factor,
+    sample_noise_sigma,
     sky_estimate_noise_variance,
 )
 from fossil_sim.simulation import run_simulation
@@ -259,3 +263,113 @@ def test_step2_config_uses_photon_noise():
     # CMB-dominated loading, plus CIB and CO in the HF band
     assert 1.6e-16 < du_nep_w_sqrt_hz(cfg, lf) < 1.8e-16
     assert 1.3e-16 < du_nep_w_sqrt_hz(cfg, hf) < 1.5e-16
+
+
+def one_over_f_config(config, fknee_mhz=2000.0, alpha=1.0):
+    """IFG domain with 1/f noise of knee ``fknee_mhz`` in both bands."""
+    return replace(
+        config,
+        ifg=replace(config.ifg, simulate=True),
+        noise=replace(
+            config.noise,
+            fknee_lf_mhz=fknee_mhz,
+            fknee_hf_mhz=fknee_mhz,
+            one_over_f_alpha=alpha,
+        ),
+    )
+
+
+def test_one_over_f_off_keeps_white_realization(config):
+    cfg = replace(config, ifg=replace(config.ifg, simulate=True))
+    du = detector_units(cfg.instrument)[0]
+    recycling = np.zeros(600, dtype=bool)
+    white = SampleNoise(cfg, du, 0, 3, recycling)[100:400]
+    # first rows of chunk 0 of the seed, as drawn before the 1/f noise existed
+    seed = np.random.SeedSequence([cfg.simulation.master_seed, 2, 3, 0, 0])
+    rows = np.random.default_rng(seed).standard_normal((256, 512))[100:]
+    np.testing.assert_array_equal(white[:156], rows * sample_noise_sigma(cfg, du))
+
+
+def test_one_over_f_realization_independent_of_slicing(config):
+    cfg = one_over_f_config(config)
+    du = detector_units(cfg.instrument)[0]
+    recycling = np.zeros(700, dtype=bool)
+    recycling[600:] = True
+    whole = SampleNoise(cfg, du, 0, 3, recycling)[0:700]
+    noise = SampleNoise(cfg, du, 0, 3, recycling)
+    parts = [noise[0:100], noise[100:500], noise[500:700]]
+    np.testing.assert_allclose(np.concatenate(parts), whole, rtol=1e-12)
+    # out of order: skipped rows are filtered, earlier rows restart the stream
+    noise = SampleNoise(cfg, du, 0, 3, recycling)
+    np.testing.assert_allclose(noise[300:450], whole[300:450], rtol=1e-12)
+    np.testing.assert_allclose(noise[50:120], whole[50:120], rtol=1e-12)
+    # Recycling IFGs × recycling_noise_factor (3)
+    assert whole[600:].std() > 2 * whole[:600].std()
+
+
+@pytest.mark.parametrize("alpha", [1.0, 2.0])
+def test_one_over_f_spectrum(config, alpha):
+    from scipy.signal import welch
+
+    cfg = one_over_f_config(config, fknee_mhz=1000.0, alpha=alpha)
+    du = detector_units(cfg.instrument)[0]
+    n_ifg = 2**15
+    noise = SampleNoise(cfg, du, 0, 0, np.zeros(n_ifg, dtype=bool))
+    stream = noise[0:n_ifg].ravel() / sample_noise_sigma(cfg, du)
+    rate_hz = cfg.ifg.samples_per_ifg / cfg.timeline.ifg_duration_s
+    freq_hz, psd = welch(stream, fs=rate_hz, nperseg=2**16)
+    psd = psd * rate_hz / 2  # one-sided PSD of unit white noise = 2 / rate
+    for f in (0.1, 0.3, 1.0, 3.0, 30.0):
+        i = np.argmin(np.abs(freq_hz - f))
+        expected = ((f**2 + 1.0) / f**2) ** (alpha / 2)
+        assert psd[i] == pytest.approx(expected, rel=0.1)
+
+
+def test_one_over_f_variance_propagates_through_fit(config):
+    cfg = one_over_f_config(config, fknee_mhz=2000.0)
+    freq_ghz = frequency_grid_ghz(cfg.instrument)
+    dus = detector_units(cfg.instrument)
+    solvers = ifg_solvers(cfg, freq_ghz, dus)
+    lf = dus[0]
+    factor = one_over_f_variance_factor(cfg, lf, solvers[lf.name])
+    # electrical frequency of the lowest LF bins ~1 Hz: raised; HF untouched
+    assert factor[0] > 2 and factor[-1] < 1.1
+    hf = dus[1]
+    assert np.all(one_over_f_variance_factor(cfg, hf, solvers[hf.name]) < 1.1)
+    off = replace(cfg, noise=replace(cfg.noise, fknee_lf_mhz=0.0))
+    assert np.all(one_over_f_variance_factor(off, lf, solvers[lf.name]) == 1)
+
+    n_ifg = 20000
+    noise = SampleNoise(cfg, lf, 0, 0, np.zeros(n_ifg, dtype=bool))
+    spectra = np.concatenate(
+        [noise[i : i + 1000] @ solvers[lf.name].T for i in range(0, n_ifg, 1000)]
+    )
+    variance = sky_estimate_noise_variance(cfg, freq_ghz, dus[:1], solvers)
+    expected = variance[lf.band_mask(freq_ghz)]
+    np.testing.assert_allclose(spectra.var(axis=0) / expected, 1, atol=0.05)
+    # no correlation between IFGs: the fit removes the noise below the IFG rate
+    centred = spectra - spectra.mean(axis=0)
+    for lag in (1, 10, 100):
+        corr = np.mean(centred[lag:] * centred[:-lag], axis=0) / centred.var(axis=0)
+        assert np.all(np.abs(corr[:5]) < 0.04)
+
+
+def test_one_over_f_validated(config):
+    from fossil_sim.config import config_from_dict
+
+    for ifg, changes in (
+        ({}, {"fknee_lf_mhz": 50.0}),  # needs ifg.simulate
+        ({"simulate": True}, {"fknee_lf_mhz": -1.0}),
+        ({"simulate": True}, {"fknee_hf_mhz": 50.0, "one_over_f_alpha": 0.0}),
+        ({"simulate": True}, {"fknee_lf_mhz": 1e-3, "one_over_f_fmin_hz": 1e-5}),
+        ({"simulate": True}, {"fknee_lf_mhz": 2e5}),  # above Nyquist (128 Hz)
+    ):
+        values = config.to_dict()
+        values["ifg"].update(ifg)
+        values["noise"].update(changes)
+        with pytest.raises(ValueError):
+            config_from_dict(values)
+    values = config.to_dict()
+    values["ifg"].update(simulate=True)
+    values["noise"].update(fknee_lf_mhz=50.0, fknee_hf_mhz=20.0)
+    config_from_dict(values)

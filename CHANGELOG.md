@@ -8,6 +8,18 @@ tagged releases.
 
 Changes on `main` that are not in a release yet.
 
+- 1/f detector noise on the IFG samples (`ifg.simulate = true`), generated
+  as in litebird_sim with `ducc0.misc.OofaNoise` on the white stream of each
+  Cooler cycle: PSD σ² [(f² + f_knee²) / (f² + f_min²)]^(α/2), knee per band.
+  The variance maps include its effect on each fitted bin. The FTS
+  modulation keeps it out of the maps' large scales: the spectra of
+  successive IFGs stay uncorrelated, only the bins at electrical frequencies
+  ν v_OPD / c near f_knee get noisier (LF 30 GHz ≈ 1 Hz in the baseline).
+  **Config change:** new keys `noise.fknee_lf_mhz`, `noise.fknee_hf_mhz`
+  (default 0, white noise), `noise.one_over_f_alpha` (1),
+  `noise.one_over_f_fmin_hz` (1e-5); the configuration hash changes for
+  every configuration, the noise realizations do not.
+
 - Static sky sampled through a low-rank factorization in frequency of each
   alm cube (SVD, every frequency map kept within `static_sky.rank_epsilon`
   of its rms, default 10⁻⁹ = the synthesis accuracy; 0 = off, one synthesis
