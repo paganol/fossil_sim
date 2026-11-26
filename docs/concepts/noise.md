@@ -36,9 +36,13 @@ The noise is added to the differential spectrum $d(\nu)$ of each DU, so that
 it propagates to the sky estimate (with `ifg.simulate = true` it is drawn on the
 IFG samples instead, $\mathrm{NEP}/\sqrt{2\,\delta t}$, and reaches $d(\nu)$
 through the fit, {doc}`interferogram`); IFGs of the Recycling window get
-`recycling_noise_factor` times this level. The NEPs are the totals of the M8
-proposal (Table 2.3, photon-noise dominated), read as one value per DU (four
-pixels combined); AΩ, $\alpha$ and $f_\mathrm{opt}$ are PIXIE placeholders.
+`recycling_noise_factor` times this level. The baseline computes the NEP of
+each DU from its loading (`nep_model = "photon"`, below); with
+`nep_model = "fixed"` it is given per band. The NEP_total of the M8 proposal
+(Table 2.3: 4.8×10⁻¹⁶ LF, 1.3×10⁻¹⁴ W/√Hz HF) is not a photon NEP of the
+FOSSIL DUs: the HF value is about 70 times the photon noise of the CMB
+loading, and the FOSSIL sensitivity curve (arXiv:2609.17618, Fig. 1) excludes
+it. The Step2 values (Table 4.1: 4.6 and 3.8×10⁻¹⁶) are of the right order.
 
 The formula for $\delta S_\nu$ assumes orthogonal cosines. With
 `ifg.simulate = true`, the variance maps instead propagate the sample noise
@@ -50,12 +54,12 @@ can also correlate frequency bins; the variance maps store only the diagonal
 of that covariance. The spectral-domain noise model retains independent bins
 with the nominal variance.
 
-With the baseline values ($m = 1$) $\delta S_\nu \simeq 1.1\times10^{4}$ Jy/sr
-(LF) and $3.0\times10^{5}$ Jy/sr (HF) per IFG and DU, i.e. a mission monopole
-sensitivity of $\simeq 1.2$ Jy/sr below 200 GHz. This is above the
-0.64–0.8 Jy/sr requirement of the proposal, which the earlier $\sqrt{2t}$
-formula matched (0.83 Jy/sr): the proposal numbers likely follow the PIXIE
-convention, to be checked together with $m$ and the NEP definition.
+With the baseline (photon noise, M8 bands 30–200–2000 GHz, $m = 1/2$) the
+NEP is 1.2×10⁻¹⁶ (LF) and 1.9×10⁻¹⁶ W/√Hz (HF), and
+$\delta S_\nu \simeq 7.6\times10^{3}$ and $1.2\times10^{4}$ Jy/sr per IFG
+and DU. The HF DU is noisier than the LF one here because the 200 GHz split
+puts the CMB peak in its band (with the 300 GHz split of `configs/step2.toml`
+the order is reversed).
 
 ## Photon noise from the optical loading
 

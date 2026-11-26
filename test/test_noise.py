@@ -12,6 +12,7 @@ from fossil_sim.ifg import (
 )
 from fossil_sim.instrument import detector_units, frequency_grid_ghz
 from fossil_sim.noise import (
+    du_nep_w_sqrt_hz,
     du_noise_mjy_sr,
     noise_sigma_mjy_sr,
     sky_estimate_noise_variance,
@@ -20,10 +21,22 @@ from fossil_sim.simulation import run_simulation
 
 
 def test_sigma_formula(config):
-    lf = detector_units(config.instrument)[0]
+    cfg = replace(
+        config,
+        noise=replace(
+            config.noise,
+            nep_model="fixed",
+            nep_lf_w_sqrt_hz=4.8e-16,
+            etendue_cm2_sr=4.0,
+            absorptivity=0.57,
+            optical_efficiency=0.9,
+            modulation_efficiency=1.0,
+        ),
+    )
+    lf = detector_units(cfg.instrument)[0]
     # NEP / (√t AΩ Δν α f m), in W m⁻² Hz⁻¹ sr⁻¹, then MJy/sr
     expected = 4.8e-16 / (np.sqrt(2.0) * 4e-4 * 15e9 * 0.57 * 0.9 * 1.0) * 1e20
-    assert noise_sigma_mjy_sr(config, lf) == pytest.approx(expected)
+    assert noise_sigma_mjy_sr(cfg, lf) == pytest.approx(expected)
 
 
 @pytest.mark.parametrize("modulation_efficiency", [1.0, 0.25])
@@ -41,7 +54,8 @@ def test_sigma_from_interferogram_samples(config, modulation_efficiency):
     w_per_unit = (
         nc.etendue_cm2_sr * 1e-4 * nc.absorptivity * nc.optical_efficiency * 1e-11
     )
-    sigma_sample = nc.nep_lf_w_sqrt_hz / np.sqrt(2 * t_s / opd_m.size) / w_per_unit
+    nep = du_nep_w_sqrt_hz(cfg, du)
+    sigma_sample = nep / np.sqrt(2 * t_s / opd_m.size) / w_per_unit
     clean = interferogram(
         freq_ghz,
         np.full(freq_ghz.size, 300.0),
@@ -118,7 +132,7 @@ def test_ifg_variance_propagates_sample_noise(
         nc.etendue_cm2_sr * 1e-4 * nc.absorptivity * nc.optical_efficiency * 1e-11
     )
     for du in dus[:2]:  # LF-L and HF-L: the R DUs have the same noise
-        nep = nc.nep_lf_w_sqrt_hz if du.name.startswith("LF") else nc.nep_hf_w_sqrt_hz
+        nep = du_nep_w_sqrt_hz(cfg, du)
         sigma_sample = (
             nep
             / np.sqrt(2 * cfg.timeline.ifg_duration_s / samples_per_ifg)
