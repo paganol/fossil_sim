@@ -106,3 +106,15 @@ def test_bbir_setpoint_changes_need_recycling():
         config_from_dict(values)
     values["timeline"]["recycling_scans"] = 18
     config_from_dict(values)
+
+
+def test_ifg_apodization_is_validated():
+    values = baseline_dict()
+    values["ifg"]["apodization"] = "boxcar"
+    with pytest.raises(ValueError, match="apodization"):
+        config_from_dict(values)
+    values["ifg"]["apodization"] = "hann"
+    with pytest.warns(UserWarning, match="apodization"):
+        config_from_dict(values)  # spectral domain: ignored
+    values["ifg"]["simulate"] = True
+    assert config_from_dict(values).ifg.apodization == "hann"

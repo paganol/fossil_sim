@@ -23,7 +23,7 @@ identify a run ({meth}`fossil_sim.config.Config.provenance`).
 | `[response]` | true DU gain (per DU, per-bin fluctuation, drift in time) and offset (emissivity, instrument temperature) |
 | `[calibration]` | calibration solution used for the sky estimate |
 | `[output]` | per-cycle TOD files |
-| `[ifg]` | OPD range, samples per IFG, OPD per mirror displacement, IFG-domain simulation, generation grid |
+| `[ifg]` | OPD range, samples per IFG, OPD per mirror displacement, IFG-domain simulation, generation grid, apodization of the spectrum fit |
 
 ## Baseline
 

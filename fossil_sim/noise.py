@@ -314,6 +314,7 @@ def ifg_solvers(
             opd_m,
             config.noise.modulation_efficiency,
             freq_step_ghz=config.instrument.freq_step_ghz,
+            apodization=config.ifg.apodization,
         )
         for du in dus
     }

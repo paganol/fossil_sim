@@ -354,6 +354,33 @@ def _interpolated_modulation(
     return out
 
 
+# Norton & Beer (1976) apodizations, A(u) = Σ_i c_i (1 − u²)^i with Σ c_i = 1
+NORTON_BEER_COEFFICIENTS = {
+    "norton_beer_weak": (0.384093, -0.087577, 0.703484),
+    "norton_beer_medium": (0.152442, -0.136176, 0.983734),
+    "norton_beer_strong": (0.045335, 0.0, 0.554883, 0.0, 0.399782),
+}
+
+
+def apodization_window(name: str, opd_m: np.ndarray) -> np.ndarray:
+    """Apodization A(x) on the OPD samples, A(0) = 1, u = |x| / max|x|.
+
+    ``"none"`` (A = 1), the Norton–Beer weak, medium and strong functions,
+    or ``"hann"``, cos²(π u / 2). A(0) = 1 keeps the level of a smooth
+    spectrum: the instrumental line shape integrates to 1.
+    """
+    u = np.abs(opd_m) / np.max(np.abs(opd_m))
+    if name == "none":
+        return np.ones_like(u)
+    if name == "hann":
+        return np.cos(np.pi * u / 2) ** 2
+    if name in NORTON_BEER_COEFFICIENTS:
+        return sum(
+            c * (1 - u**2) ** i for i, c in enumerate(NORTON_BEER_COEFFICIENTS[name])
+        )
+    raise ValueError(f"unknown apodization {name!r}")
+
+
 def differential_spectrum_solver(
     freq_ghz: np.ndarray,
     du: DetectorUnit,
@@ -361,19 +388,33 @@ def differential_spectrum_solver(
     modulation_efficiency: float = 1.0,
     *,
     freq_step_ghz: float | None = None,
+    apodization: str = "none",
 ) -> np.ndarray:
     """Linear map from IFG samples to the DU band spectra, (n_band, n_samples).
 
     ``ifgs @ solver.T`` is :func:`differential_spectra`; the same matrix
     propagates sample noise (:func:`fossil_sim.noise.sky_estimate_noise_variance`).
     It depends only on the configuration: compute it once per DU and reuse it.
+
+    Without apodization, the least squares on a constant plus the cosines of
+    the band bins, D⁺. With apodization A (:func:`apodization_window`), the
+    constant a₀ of that fit is removed first, then the apodized samples are
+    projected on the cosines: D⁺[1:] diag(A) (1 − 𝟙 D⁺[0]). Each bin is then
+    the spectrum seen through the line shape of A (wider, lower sidelobes)
+    and neighbouring bins are correlated; the rows still annihilate a
+    constant.
     """
     mask = du.band_mask(freq_ghz)
     freq_step_ghz = _frequency_step_ghz(freq_ghz, freq_step_ghz)
     design = np.column_stack(
         [np.ones_like(opd_m), modulation_matrix(freq_ghz[mask], opd_m)]
     )
-    return np.linalg.pinv(design)[1:] / (freq_step_ghz * modulation_efficiency)
+    pinv = np.linalg.pinv(design)
+    fit = pinv[1:]
+    if apodization != "none":
+        window = apodization_window(apodization, opd_m)
+        fit = fit * window - np.outer(fit @ window, pinv[0])
+    return fit / (freq_step_ghz * modulation_efficiency)
 
 
 def differential_spectra(
@@ -384,15 +425,22 @@ def differential_spectra(
     modulation_efficiency: float = 1.0,
     *,
     freq_step_ghz: float | None = None,
+    apodization: str = "none",
 ) -> np.ndarray:
     """Recover s (I₁ − I₂) on the DU band bins from interferograms (n_ifg, n_samples).
 
-    Least squares on a constant plus the cosines of the band bins (no
-    apodization), shape (n_ifg, n_band). ``freq_step_ghz`` defaults to the grid
-    spacing; supply it for a single bin.
+    Least squares on a constant plus the cosines of the band bins, with
+    optional ``apodization`` (:func:`differential_spectrum_solver`), shape
+    (n_ifg, n_band). ``freq_step_ghz`` defaults to the grid spacing; supply
+    it for a single bin.
     """
     solver = differential_spectrum_solver(
-        freq_ghz, du, opd_m, modulation_efficiency, freq_step_ghz=freq_step_ghz
+        freq_ghz,
+        du,
+        opd_m,
+        modulation_efficiency,
+        freq_step_ghz=freq_step_ghz,
+        apodization=apodization,
     )
     return ifgs @ solver.T
 
@@ -410,11 +458,13 @@ def differential_spectrum(
     modulation_efficiency: float = 1.0,
     *,
     freq_step_ghz: float | None = None,
+    apodization: str = "none",
 ) -> np.ndarray:
     """Recover s (I₁ − I₂) in the DU band from an interferogram, by least squares.
 
     Bins outside the band are returned as NaN.
     ``freq_step_ghz`` defaults to the grid spacing; supply it for a single bin.
+    ``apodization`` as in :func:`differential_spectrum_solver`.
     """
     result = np.full(freq_ghz.size, np.nan)
     result[du.band_mask(freq_ghz)] = differential_spectra(
@@ -424,5 +474,6 @@ def differential_spectrum(
         opd_m,
         modulation_efficiency,
         freq_step_ghz=freq_step_ghz,
+        apodization=apodization,
     )[0]
     return result

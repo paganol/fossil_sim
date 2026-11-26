@@ -57,6 +57,75 @@ for a single bin it must be supplied explicitly. The simulation always passes
 `instrument.freq_step_ghz`, so single-bin configurations are supported in both
 the spectral and IFG domains.
 
+### Apodization
+
+Without apodization each bin sees the spectrum through the line shape of the
+finite scan, a sinc of FWHM $1.21\,c/2x_\mathrm{max}$ (18 GHz at baseline)
+with a first sidelobe of −22 %. On the fit basis this is invisible (the
+recovery is exact), but structure off the basis rings over the whole band:
+a sharp band edge, an unresolved line, the sky changing during the IFG.
+`ifg.apodization` weights the samples by $A(x)$, $A(0) = 1$, before the fit
+({func}`fossil_sim.ifg.differential_spectrum_solver`): the constant $a_0$ of
+the plain fit is removed first, then the apodized samples are projected on
+the cosines,
+
+$$
+R_A = D^+_{1:}\,\mathrm{diag}(A)\,\bigl(\mathbb 1 - \mathbf 1\,D^+_{0}\bigr),
+$$
+
+with $D$ the design matrix of the plain fit. The rows still annihilate a
+constant, so the 1/f factor ({doc}`noise`) applies unchanged. The choices
+are the Norton–Beer weak, medium and strong functions {cite}`norton1976`,
+$A = \sum_i c_i (1 - u^2)^i$, and Hann, $\cos^2(\pi u/2)$, with
+$u = |x|/x_\mathrm{max}$. On the baseline (bin at 1005 GHz):
+
+| `apodization` | FWHM | first sidelobe | σ per bin | ρ(k, k+1) | ρ(k, k+2) |
+|---|---|---|---|---|---|
+| `none` | 18.0 GHz | −22 % | 1 | 0.00 | 0.00 |
+| `norton_beer_weak` | 21.7 GHz | 5.9 % | 0.74 | 0.40 | 0.03 |
+| `norton_beer_medium` | 25.3 GHz | 1.4 % | 0.66 | 0.57 | 0.08 |
+| `norton_beer_strong` | 28.9 GHz | 0.4 % | 0.61 | 0.67 | 0.18 |
+| `hann` | 29.9 GHz | 2.7 % | 0.61 | 0.67 | 0.17 |
+
+The noise per bin falls only because the bins become correlated: at equal
+resolution apodization costs sensitivity. The variance maps carry the
+diagonal of the covariance only. $A(0) = 1$ keeps the level of a smooth
+spectrum (within $10^{-3}$ away from the edges), but the line shape of the
+last bins of each DU reaches past the fitted band: for a flat spectrum the
+outermost bin is recovered 15–25 % low, and the nominal calibration does
+not correct it.
+
+Effect on the systematics of the generation grid (3 GHz grid, 600 science
+IFGs at $|b| < 2°$ in the first Cooler cycle, no noise; sky estimate, the
+mean of L and R):
+
+- **Sky change during the IFG, top-hat bands.** The modulated part falls
+  10–40 times inside the HF band with Norton–Beer medium or Hann (Hann:
+  $7\times10^{-4} \to 2\times10^{-5}$ MJy/sr at 1500 GHz) and 3–5 times in
+  the 1995 GHz bin (0.15 → 0.03–0.05 MJy/sr); the 1980 GHz bin stays at
+  0.05 MJy/sr, its wider line shape now catching the 2000 GHz step.
+- **Sky change, cosine edges** (`band_edge_fraction = 0.1`). Already small
+  ($\le 4\times10^{-3}$ MJy/sr), and apodization leaves it unchanged except
+  next to the dichroic (195–210 GHz, about 3 times lower).
+- **Unmodulated leakage in one DU.** The even part of the sky change grows
+  as $t^2$, largest at the ends of the scan, where $A$ is small: the leakage
+  falls 3.5 times (Norton–Beer medium) to 6 times (Hann) with either edge;
+  it cancels in the sky estimate anyway.
+- **Static sky, top-hat bands.** Without apodization the 2000 GHz step rings
+  hundreds of GHz into the band (0.14 MJy/sr at 1500 GHz, 0.6 at 1800, 3.2 at
+  1950, rms of the error on the bin-centre sky); Norton–Beer medium brings it
+  to 0.08, 0.14 and 0.24 MJy/sr. In mid-band, away from any edge, the wider
+  line shape instead raises the error from 0.01–0.05 to about 0.08 MJy/sr,
+  a local smoothing of the dust curvature that a model can include.
+- **Static sky, cosine edges.** Apodization changes little; the error is
+  dominated by an offset of about +0.1 MJy/sr, nearly constant over the HF
+  bins and the same with any apodization (not understood yet).
+
+Apodization is therefore useful against sharp spectral structure (a sharp
+filter edge, lines); with smooth filter edges its gain is small, and it
+costs resolution, bin correlations and the edge bins. The default is
+`"none"`.
+
 ## Generation grid and band edges
 
 The fit above is exact only because, by default, the interferogram is built

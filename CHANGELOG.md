@@ -8,6 +8,17 @@ tagged releases.
 
 Changes on `main` that are not in a release yet.
 
+- Optional apodization of the IFG samples before the spectrum fit
+  (`ifg.simulate = true`): Norton–Beer weak, medium, strong or Hann, with
+  A(0) = 1. The constant of the plain fit is removed, then the apodized
+  samples are projected on the cosines; the noise variance and the 1/f
+  factor follow the new solver. It suppresses the sinc sidelobes (−22 % →
+  1.4 % with Norton–Beer medium) at the cost of a wider line shape (18 →
+  25 GHz), correlated neighbouring bins and low edge bins of each DU; docs
+  (Interferogram) give its effect on the band-edge systematics.
+  **Config change:** new key `ifg.apodization` (default `"none"`, results
+  unchanged); the configuration hash changes for every configuration.
+
 - Gain drift in time, g → g (1 + γ(t)): one γ per IFG and DU, the same in
   every bin, drawn as in litebird_sim with `ducc0.misc.OofaNoise` at the IFG
   rate (white rms per IFG, knee, slope, f_min), independent DUs, one stream
