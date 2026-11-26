@@ -23,6 +23,10 @@ and remove the key. IFGs in the Recycling window get ``recycling_noise_factor``
 times this level. Realizations are keyed by (component, cycle, DU), never by
 MPI rank (ADR 0001).
 
+The NEP is either given per band (``nep_model = "fixed"``) or computed for
+each DU from its optical loading (``"photon"``, :func:`photon_nep_w_sqrt_hz`,
+the model of Coulon, Aghanim & Maffei 2026, arXiv:2609.17829, Eq. 15–16).
+
 With ``ifg.simulate`` the noise is drawn instead on the IFG samples,
 :func:`sample_noise_sigma`, and reaches the spectrum through the least-squares
 fit; it is drawn lazily per block (:class:`SampleNoise`), keyed by (component,
@@ -32,8 +36,11 @@ cycle, DU, chunk of IFGs).
 import numpy as np
 
 from .config import Config
+from .constants import C_LIGHT_M_S, H_PLANCK_J_S
 from .ifg import differential_spectrum_solver, opd_samples_m
+from .input_sky import isotropic_background_mjy_sr
 from .instrument import DetectorUnit
+from .spectra import blackbody_mjy_sr
 
 # First entry of the SeedSequence key, separating noise from future components
 NOISE_COMPONENT_ID = 1
@@ -43,6 +50,69 @@ SAMPLE_NOISE_CHUNK_IFGS = 256
 
 # 1 MJy/sr = 1e-20 W m⁻² Hz⁻¹ sr⁻¹
 SI_TO_MJY_SR = 1e20
+# Frequency step of the photon-NEP integral (smooth integrand: 0.1 % at 1 GHz)
+PHOTON_NEP_STEP_GHZ = 0.5
+
+
+def du_nep_w_sqrt_hz(config: Config, du: DetectorUnit) -> float:
+    """NEP of one DU: given per band, or the photon NEP of its loading."""
+    nc = config.noise
+    if nc.nep_model == "photon":
+        return photon_nep_w_sqrt_hz(config, du)
+    return nc.nep_lf_w_sqrt_hz if du.name.startswith("LF") else nc.nep_hf_w_sqrt_hz
+
+
+def optical_loading_w_hz(
+    config: Config, du: DetectorUnit, freq_ghz: np.ndarray
+) -> np.ndarray:
+    """Spectral power on one DU, P_ν in W/Hz (Coulon et al. 2026, Eq. 15).
+
+    P_ν = m α AΩ w(ν) [f_opt (I_sky + I_ref) + Σ_k ε_k B_ν(T_k)]: the
+    unmodulated term of the DU power (``fossil_sim.ifg``, all frequencies
+    adding incoherently: an upper bound on the photon noise), with w the DU
+    transmission, I_sky the Isotropic backgrounds (CMB and distortions, CIB,
+    extragalactic CO; no Galactic or zodiacal emission), I_ref the BBIR at the
+    mean set point, and the emission of the optical elements reaching the
+    detectors unattenuated. m = 1/2 is the Martin-Puplett value for a DU
+    absorbing both polarisations (Coulon et al. 2026, Eq. 11–12).
+    """
+    nc = config.noise
+    sky = isotropic_background_mjy_sr(freq_ghz, config.sky)
+    reference = blackbody_mjy_sr(freq_ghz, float(np.mean(config.bbir.setpoints_k)))
+    radiance = nc.optical_efficiency * (sky + reference)
+    for emissivity, temperature in zip(
+        nc.optics_emissivity, nc.optics_temperature_k, strict=True
+    ):
+        radiance = radiance + emissivity * blackbody_mjy_sr(freq_ghz, temperature)
+    transmission = du.transmission(freq_ghz, config.instrument.band_edge_fraction)
+    return (
+        nc.modulation_efficiency
+        * nc.absorptivity
+        * nc.etendue_cm2_sr
+        * 1e-4
+        * transmission
+        * radiance
+        / SI_TO_MJY_SR
+    )
+
+
+def photon_nep_w_sqrt_hz(config: Config, du: DetectorUnit) -> float:
+    """Photon NEP of one DU from its loading (Coulon et al. 2026, Eq. 16).
+
+    NEP² = ∫ [2 h ν P_ν + 2 P_ν² / N(ν)] dν over the DU band, shot and wave
+    noise, with N = AΩ ν² / c² modes and P_ν from :func:`optical_loading_w_hz`.
+    """
+    edge = 1 + config.instrument.band_edge_fraction / 2
+    freq_ghz = np.arange(
+        du.band_min_ghz / edge, du.band_max_ghz * edge, PHOTON_NEP_STEP_GHZ
+    )
+    power = optical_loading_w_hz(config, du, freq_ghz)
+    freq_hz = freq_ghz * 1e9
+    etendue_m2_sr = config.noise.etendue_cm2_sr * 1e-4
+    integrand = 2 * H_PLANCK_J_S * freq_hz * power + 2 * power**2 * (
+        C_LIGHT_M_S**2 / (freq_hz**2 * etendue_m2_sr)
+    )
+    return float(np.sqrt(np.trapezoid(integrand, freq_hz)))
 
 
 def noise_sigma_mjy_sr(config: Config, du: DetectorUnit) -> float:
@@ -52,8 +122,7 @@ def noise_sigma_mjy_sr(config: Config, du: DetectorUnit) -> float:
     changes the bin variances; see :func:`sky_estimate_noise_variance`.
     """
     nc = config.noise
-    nep = nc.nep_lf_w_sqrt_hz if du.name.startswith("LF") else nc.nep_hf_w_sqrt_hz
-    sigma_si = nep / (
+    sigma_si = du_nep_w_sqrt_hz(config, du) / (
         np.sqrt(config.timeline.ifg_duration_s)
         * nc.etendue_cm2_sr
         * 1e-4

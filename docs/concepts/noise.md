@@ -29,7 +29,8 @@ the convention is fixed with the instrument team: the amplitude of the
 modulated difference in the DU power. It is 1 when one DU sees the full
 difference (the convention used so far), $1/4$ for a single-polarization
 bolometer of a Martin-Puplett FTS (PIXIE, Kogut et al., arXiv:2405.20403v2, eq. 1), $1/2$ for a DU summing
-two of them; the NEP must refer to the same detector.
+two of them (Coulon et al. 2026, Eq. 11–12); the NEP must refer to the same
+detector.
 
 The noise is added to the differential spectrum $d(\nu)$ of each DU, so that
 it propagates to the sky estimate (with `ifg.simulate = true` it is drawn on the
@@ -55,6 +56,44 @@ sensitivity of $\simeq 1.2$ Jy/sr below 200 GHz. This is above the
 0.64–0.8 Jy/sr requirement of the proposal, which the earlier $\sqrt{2t}$
 formula matched (0.83 Jy/sr): the proposal numbers likely follow the PIXIE
 convention, to be checked together with $m$ and the NEP definition.
+
+## Photon noise from the optical loading
+
+With `nep_model = "photon"` the NEP of each DU is not given but computed from
+its optical loading, following Coulon, Aghanim & Maffei (2026,
+arXiv:2609.17829, Sect. 4), the model behind the FOSSIL sensitivity curves
+(FOSSIL Collaboration 2026, arXiv:2609.17618, Fig. 1)
+({func}`fossil_sim.noise.photon_nep_w_sqrt_hz`). The spectral power on the
+DU is the unmodulated term of its interferogram, all frequencies adding
+incoherently (an upper bound on the photon noise),
+
+$$
+P_\nu = m\,\alpha\,A\Omega\,w(\nu)\left[f_\mathrm{opt}\,(I_\mathrm{sky} + I_\mathrm{BBIR}) + \sum_k \varepsilon_k B_\nu(T_k)\right],
+$$
+
+with $w$ the DU transmission, $I_\mathrm{sky}$ the Isotropic backgrounds (no
+Galactic or zodiacal emission), $I_\mathrm{BBIR}$ the BBIR at the mean set
+point and the optical elements as grey bodies (`optics_emissivity`,
+`optics_temperature_k`) whose emission reaches the detectors unattenuated.
+Shot and wave noise give
+
+$$
+\mathrm{NEP}^2 = \int \left[2h\nu P_\nu + \frac{2 c^2}{\nu^2 A\Omega} P_\nu^2\right] d\nu
+$$
+
+over the band of the DU. For a Martin-Puplett FTS with DUs absorbing both
+polarisations $m = 1/2$ (Coulon et al., Eq. 11–12):
+$P = \tfrac12\left[(I_1 + I_2) \pm (I_1 - I_2)\cos\right]$. With this $m$,
+$\delta S_\nu$ above, averaged over the L and R outputs and over the mission,
+is Coulon's sensitivity per channel,
+$\sqrt2\,\mathrm{NEP}/(\sqrt{t_\mathrm{obs}}\,A\Omega\,\Delta\nu\,\eta\,T_\mathrm{tot})$
+(Eq. 17–18). Their reference (Table 2: $\eta = 0.5$, $A\Omega = 3$ cm² sr,
+one optical element at 1 % and 4.5 K, $t_\mathrm{obs}$ = 2.8 yr), with sky
+and reference at the CMB temperature, gives NEP = 1.7 (1.35)×10⁻¹⁶ W/√Hz and
+1.14 (0.91) Jy/sr in the 50–300 (300–2000) GHz band, which the tests
+reproduce to 1 %; `configs/step2.toml` uses these values. The step of the
+FOSSIL curve just above 300 GHz is not reproduced: it needs frequency-dependent
+efficiencies, not yet modelled.
 
 Each realization is drawn from a `numpy.random.SeedSequence` keyed by
 (master seed, component, cycle, DU), never by MPI rank (ADR 0001): a run gives

@@ -188,6 +188,12 @@ class NoiseConfig:
     optical_efficiency: float
     modulation_efficiency: float
     recycling_noise_factor: float
+    # "fixed": nep_lf/hf_w_sqrt_hz; "photon": photon NEP of each DU from its
+    # optical loading (fossil_sim.noise.photon_nep_w_sqrt_hz, Coulon et al. 2026)
+    nep_model: str = "fixed"
+    # emitting optical elements (grey bodies) seen by the detectors, "photon" only
+    optics_emissivity: tuple[float, ...] = ()
+    optics_temperature_k: tuple[float, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -213,6 +219,7 @@ class ResponseConfig:
 
 
 CALIBRATION_SOLUTIONS = ("nominal", "true")
+NEP_MODELS = ("fixed", "photon")
 
 
 @dataclass(frozen=True)
@@ -421,6 +428,16 @@ def validate(config: Config) -> None:
         raise ValueError("noise: all parameters must be > 0")
     if nc.modulation_efficiency > 1:
         raise ValueError("noise.modulation_efficiency must be in (0, 1]")
+    if nc.nep_model not in NEP_MODELS:
+        raise ValueError(f"noise.nep_model must be one of {NEP_MODELS}")
+    if len(nc.optics_emissivity) != len(nc.optics_temperature_k):
+        raise ValueError(
+            "noise: optics_emissivity and optics_temperature_k need equal lengths"
+        )
+    if any(not 0 <= e <= 1 for e in nc.optics_emissivity) or any(
+        not t > 0 for t in nc.optics_temperature_k
+    ):
+        raise ValueError("noise: optics emissivities in [0, 1] and temperatures > 0")
     rc = config.response
     if len(rc.gain) != 4 or len(rc.offset_emissivity) != 4:
         raise ValueError(
