@@ -132,6 +132,7 @@ def du_interferograms(
     offset_mjy_sr: np.ndarray | None = None,
     transmission: np.ndarray | None = None,
     constant_window: np.ndarray | None = None,
+    modulation: np.ndarray | None = None,
 ) -> np.ndarray:
     """Interferograms of one DU for a block of IFGs, (n_ifg, n_samples).
 
@@ -146,6 +147,8 @@ def du_interferograms(
     :mod:`fossil_sim.response`: modulated amplitude g (s (I₁ − I₂) + o), and
     g also on the unmodulated term. ``constant_window`` flags the IFGs whose
     Port spectra do not change over the window (detected when not given).
+    ``modulation`` is :func:`modulation_matrix` on the band bins (computed
+    when not given): it depends only on the configuration, pass it to reuse it.
     """
     mask, factor = _band_factor(freq_ghz, du, gain, transmission)
     freq_step_ghz = _frequency_step_ghz(freq_ghz, freq_step_ghz)
@@ -161,7 +164,7 @@ def du_interferograms(
     difference *= factor
     modulated = _interpolated_modulation(
         difference,
-        modulation_matrix(freq_ghz[mask], opd_m),
+        _band_modulation(modulation, freq_ghz, mask, opd_m),
         weights,
         constant_window,
     )
@@ -177,6 +180,7 @@ def static_basis_interferograms(
     *,
     gain: np.ndarray | None = None,
     transmission: np.ndarray | None = None,
+    modulation: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """IFG terms of each basis spectrum U_k(ν) of the Static sky, for one DU.
 
@@ -188,7 +192,8 @@ def static_basis_interferograms(
     """
     mask, factor = _band_factor(freq_ghz, du, gain, transmission)
     band = spectra[mask] * factor[:, None]
-    return modulation_matrix(freq_ghz[mask], opd_m) @ band, band.sum(axis=0)
+    modulation = _band_modulation(modulation, freq_ghz, mask, opd_m)
+    return modulation @ band, band.sum(axis=0)
 
 
 def du_interferograms_low_rank(
@@ -208,6 +213,7 @@ def du_interferograms_low_rank(
     gain: np.ndarray | None = None,
     offset_mjy_sr: np.ndarray | None = None,
     transmission: np.ndarray | None = None,
+    modulation: np.ndarray | None = None,
 ) -> np.ndarray:
     """Interferograms of one DU, (n_ifg, n_samples), Static sky in a low-rank basis.
 
@@ -220,6 +226,7 @@ def du_interferograms_low_rank(
     :func:`static_basis_interferograms` with the same gain and transmission.
     Equal to :func:`du_interferograms` on the full Port spectra, at a cost per
     sample proportional to K instead of the number of band frequencies.
+    ``modulation`` as in :func:`du_interferograms`.
     """
     mask, factor = _band_factor(freq_ghz, du, gain, transmission)
     freq_step_ghz = _frequency_step_ghz(freq_ghz, freq_step_ghz)
@@ -231,7 +238,8 @@ def du_interferograms_low_rank(
         difference += du.output_sign * offset_mjy_sr
     difference *= factor
     window_sum = weights.sum(axis=1)
-    modulated = (difference @ modulation_matrix(freq_ghz[mask], opd_m).T) * window_sum
+    modulation = _band_modulation(modulation, freq_ghz, mask, opd_m)
+    modulated = (difference @ modulation.T) * window_sum
     ifgs = total[:, None] * window_sum + du.output_sign * modulated
     # Static sky, only on the IFGs with a Port on the sky
     rows = np.flatnonzero(sky_ports)
@@ -246,6 +254,18 @@ def du_interferograms_low_rank(
             du.output_sign * sky_sign[rows, None] * varying
         )
     return modulation_efficiency * freq_step_ghz * ifgs
+
+
+def _band_modulation(
+    modulation: np.ndarray | None,
+    freq_ghz: np.ndarray,
+    mask: np.ndarray,
+    opd_m: np.ndarray,
+) -> np.ndarray:
+    """``modulation`` if given, else :func:`modulation_matrix` on the band bins."""
+    if modulation is None:
+        return modulation_matrix(freq_ghz[mask], opd_m)
+    return modulation
 
 
 def _band_factor(
