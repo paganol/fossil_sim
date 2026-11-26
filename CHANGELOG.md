@@ -28,6 +28,18 @@ Changes on `main` that are not in a release yet.
 - IFG domain: the matrix cos(2πνx/c) on the band bins of each DU is built
   once by `SignalModel` instead of at every block (248 times per cycle).
   Identical outputs; a fine-grid cycle on one rank goes from 16.6 to 15.8 s.
+- Photon noise from the optical loading: `noise.nep_model = "photon"`
+  computes the NEP of each DU from the power it receives (Isotropic
+  backgrounds, BBIR, grey-body optics `optics_emissivity` /
+  `optics_temperature_k`), shot and wave noise, as in Coulon, Aghanim &
+  Maffei 2026 (arXiv:2609.17829, Eq. 15–16). Their FOSSIL reference
+  sensitivity (1.14 / 0.91 Jy/sr per 15 GHz channel) is reproduced to 1 %.
+  New `configs/step2.toml`: FOSSIL bands 50–300–2000 GHz, 4-yr mission,
+  photon noise with Coulon's reference values and `modulation_efficiency =
+  0.5`. `baseline.toml` is unchanged (`nep_model = "fixed"` is the default).
+  **Config change:** new optional `[noise]` keys `nep_model`,
+  `optics_emissivity`, `optics_temperature_k`; the configuration hash
+  changes for every configuration.
 
 ## 0.1.9 (2026-11-25)
 
