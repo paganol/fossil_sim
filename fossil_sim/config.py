@@ -194,6 +194,13 @@ class NoiseConfig:
     # emitting optical elements (grey bodies) seen by the detectors, "photon" only
     optics_emissivity: tuple[float, ...] = ()
     optics_temperature_k: tuple[float, ...] = ()
+    # 1/f detector noise on the IFG samples (ifg.simulate only), PSD
+    # σ² [(f² + f_knee²) / (f² + f_min²)]^(α/2) (ducc0.misc.OofaNoise);
+    # f_knee = 0: white noise
+    fknee_lf_mhz: float = 0.0
+    fknee_hf_mhz: float = 0.0
+    one_over_f_alpha: float = 1.0
+    one_over_f_fmin_hz: float = 1e-5
 
 
 @dataclass(frozen=True)
@@ -438,6 +445,22 @@ def validate(config: Config) -> None:
         not t > 0 for t in nc.optics_temperature_k
     ):
         raise ValueError("noise: optics emissivities in [0, 1] and temperatures > 0")
+    fknees_hz = [nc.fknee_lf_mhz * 1e-3, nc.fknee_hf_mhz * 1e-3]
+    if min(fknees_hz) < 0 or nc.one_over_f_alpha <= 0 or nc.one_over_f_fmin_hz <= 0:
+        raise ValueError(
+            "noise: fknee_lf/hf_mhz >= 0, one_over_f_alpha and _fmin_hz > 0"
+        )
+    if max(fknees_hz) > 0:
+        if not config.ifg.simulate:
+            raise ValueError("noise: 1/f noise (fknee_*_mhz > 0) needs ifg.simulate")
+        sample_rate_hz = config.ifg.samples_per_ifg / config.timeline.ifg_duration_s
+        if any(
+            0 < f <= nc.one_over_f_fmin_hz or f >= sample_rate_hz / 2 for f in fknees_hz
+        ):
+            raise ValueError(
+                "noise: fknee_*_mhz must lie between one_over_f_fmin_hz and the "
+                "Nyquist frequency of the IFG samples"
+            )
     rc = config.response
     if len(rc.gain) != 4 or len(rc.offset_emissivity) != 4:
         raise ValueError(

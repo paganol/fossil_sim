@@ -30,9 +30,11 @@ the model of Coulon, Aghanim & Maffei 2026, arXiv:2609.17829, Eq. 15–16).
 With ``ifg.simulate`` the noise is drawn instead on the IFG samples,
 :func:`sample_noise_sigma`, and reaches the spectrum through the least-squares
 fit; it is drawn lazily per block (:class:`SampleNoise`), keyed by (component,
-cycle, DU, chunk of IFGs).
+cycle, DU, chunk of IFGs). There it can have a 1/f component
+(``fknee_lf/hf_mhz``, generated with ``ducc0.misc.OofaNoise``).
 """
 
+import ducc0
 import numpy as np
 
 from .config import Config
@@ -47,6 +49,8 @@ NOISE_COMPONENT_ID = 1
 IFG_NOISE_COMPONENT_ID = 2
 # IFGs per seed of the sample noise (fixes the realization: do not change)
 SAMPLE_NOISE_CHUNK_IFGS = 256
+# Zero padding of the fit rows for the 1/f variance (converged to 1e-8 at 16)
+ONE_OVER_F_PADDING = 16
 
 # 1 MJy/sr = 1e-20 W m⁻² Hz⁻¹ sr⁻¹
 SI_TO_MJY_SR = 1e20
@@ -149,6 +153,13 @@ def sample_noise_sigma(config: Config, du: DetectorUnit) -> float:
     )
 
 
+def du_fknee_hz(config: Config, du: DetectorUnit) -> float:
+    """Knee frequency of the 1/f noise of one DU, Hz (0: white noise)."""
+    nc = config.noise
+    fknee_mhz = nc.fknee_lf_mhz if du.name.startswith("LF") else nc.fknee_hf_mhz
+    return fknee_mhz * 1e-3
+
+
 class SampleNoise:
     """Sample noise of one DU over a Cooler cycle, (n_ifg, samples_per_ifg).
 
@@ -157,6 +168,15 @@ class SampleNoise:
     from its own seed, so an IFG gets the same realization whatever the slicing
     and the order of the calls. As for :func:`du_noise_mjy_sr`, the row index
     is the position in the cycle table.
+
+    With a knee frequency (:func:`du_fknee_hz`) the white stream of the cycle,
+    the IFGs back to back, goes through ``ducc0.misc.OofaNoise`` (as in
+    litebird_sim), PSD σ² [(f² + f_knee²) / (f² + f_min²)]^(α/2): σ is the
+    white level, unchanged. The filter keeps its state between slices, so
+    contiguous slices in order cost one pass; a slice before the last one
+    restarts the filter from the first IFG of the cycle. The stream starts at
+    the cycle start (one realization per cycle, ADR 0001), and the Recycling
+    factor scales the filtered noise of its IFGs.
     """
 
     def __init__(
@@ -177,6 +197,12 @@ class SampleNoise:
         self.sigma = sample_noise_sigma(config, du) * np.where(
             in_recycling, config.noise.recycling_noise_factor, 1.0
         )
+        self.fknee_hz = du_fknee_hz(config, du)
+        self.alpha = config.noise.one_over_f_alpha
+        self.fmin_hz = config.noise.one_over_f_fmin_hz
+        self.sample_rate_hz = self.samples_per_ifg / config.timeline.ifg_duration_s
+        self._filter = None
+        self._next_row = 0
 
     def __len__(self) -> int:
         return self.sigma.size
@@ -187,9 +213,17 @@ class SampleNoise:
             raise ValueError("SampleNoise supports contiguous slices only")
         if stop <= start:
             return np.empty((0, self.samples_per_ifg))
+        if self.fknee_hz > 0:
+            noise = self._one_over_f(start, stop)
+        else:
+            noise = self._white(start, stop)
+        return noise * self.sigma[start:stop, None]
+
+    def _white(self, start: int, stop: int) -> np.ndarray:
+        """Unit white noise of rows start:stop, from their chunk seeds."""
         size = SAMPLE_NOISE_CHUNK_IFGS
         first, last = start // size, (stop - 1) // size + 1
-        noise = np.concatenate(
+        return np.concatenate(
             [
                 np.random.default_rng(
                     np.random.SeedSequence(self.key + [chunk])
@@ -197,7 +231,25 @@ class SampleNoise:
                 for chunk in range(first, last)
             ]
         )[start - first * size : stop - first * size]
-        return noise * self.sigma[start:stop, None]
+
+    def _one_over_f(self, start: int, stop: int) -> np.ndarray:
+        """Unit-white-level 1/f noise of rows start:stop, continuing the stream."""
+        if self._filter is None or start < self._next_row:
+            self._filter = ducc0.misc.OofaNoise(
+                sigmawhite=1.0,
+                f_knee=self.fknee_hz,
+                f_min=self.fmin_hz,
+                f_samp=self.sample_rate_hz,
+                slope=-self.alpha,
+            )
+            self._next_row = 0
+        # advance over skipped rows, a chunk at a time
+        for row in range(self._next_row, start, SAMPLE_NOISE_CHUNK_IFGS):
+            end = min(row + SAMPLE_NOISE_CHUNK_IFGS, start)
+            self._filter.filterGaussian(self._white(row, end).ravel())
+        noise = self._filter.filterGaussian(self._white(start, stop).ravel())
+        self._next_row = stop
+        return noise.reshape(stop - start, self.samples_per_ifg)
 
 
 def du_noise_mjy_sr(
@@ -220,6 +272,34 @@ def du_noise_mjy_sr(
     noise = np.random.default_rng(seed).standard_normal((in_recycling.size, num_bins))
     scale = np.where(in_recycling, config.noise.recycling_noise_factor, 1.0)
     return noise * (noise_sigma_mjy_sr(config, du) * scale)[:, None]
+
+
+def one_over_f_variance_factor(
+    config: Config, du: DetectorUnit, solver: np.ndarray
+) -> np.ndarray:
+    """Variance of each fitted bin with the 1/f noise, relative to white noise.
+
+    For stationary sample noise of PSD σ² S(f) the fit row L_k has variance
+    σ² ∫ S(f) |L̂_k(f)|² df; by Parseval this is σ² Σ_n L_kn² for S = 1, so the
+    factor is the S-weighted mean of |L̂_k|² over the frequencies (rows zero
+    padded). The fitted constant makes L̂_k vanish at f = 0, so the noise below
+    the IFG rate barely reaches the spectrum: only bins whose electrical
+    frequency ν v_OPD / c is near f_knee are raised. Correlations between IFGs
+    (from 1/f below the IFG rate) are neglected; they are below 1 % for
+    f_knee up to 2 Hz (Monte Carlo, ``test/test_noise.py``). Ones without 1/f.
+    """
+    fknee_hz = du_fknee_hz(config, du)
+    if fknee_hz == 0:
+        return np.ones(solver.shape[0])
+    nc = config.noise
+    size = solver.shape[1] * ONE_OVER_F_PADDING
+    rate_hz = config.ifg.samples_per_ifg / config.timeline.ifg_duration_s
+    freq_hz = np.abs(np.fft.fftfreq(size, 1 / rate_hz))
+    psd = ((freq_hz**2 + fknee_hz**2) / (freq_hz**2 + nc.one_over_f_fmin_hz**2)) ** (
+        nc.one_over_f_alpha / 2
+    )
+    power = np.abs(np.fft.fft(solver, n=size, axis=1)) ** 2
+    return (power @ psd) / size / np.sum(solver**2, axis=1)
 
 
 def ifg_solvers(
@@ -252,8 +332,9 @@ def sky_estimate_noise_variance(
     (:mod:`fossil_sim.response`): the detector noise is outside the gain, so
     the calibrated variance is divided by ĝ².
 
-    With simulated IFGs, propagate the independent sample noise through the
-    actual least-squares fit: diag(C) = σ_sample² sum_j solver[k, j]².
+    With simulated IFGs, propagate the sample noise through the actual
+    least-squares fit: diag(C) = σ_sample² sum_j solver[k, j]² for white noise,
+    times :func:`one_over_f_variance_factor` with 1/f noise.
     ``solvers`` maps DU names to :func:`fossil_sim.ifg.differential_spectrum_solver`
     (computed here if not given).
     """
@@ -265,8 +346,10 @@ def sky_estimate_noise_variance(
         mask = du.band_mask(freq_ghz)
         if config.ifg.simulate:
             solver = solvers[du.name]
-            du_variance = sample_noise_sigma(config, du) ** 2 * np.sum(
-                solver**2, axis=1
+            du_variance = (
+                sample_noise_sigma(config, du) ** 2
+                * np.sum(solver**2, axis=1)
+                * one_over_f_variance_factor(config, du, solver)
             )
         else:
             du_variance = noise_sigma_mjy_sr(config, du) ** 2

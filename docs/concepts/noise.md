@@ -99,6 +99,42 @@ reproduce to 1 %; `configs/step2.toml` uses these values. The step of the
 FOSSIL curve just above 300 GHz is not reproduced: it needs frequency-dependent
 efficiencies, not yet modelled.
 
+## 1/f noise
+
+With `ifg.simulate = true` the sample noise can have a 1/f component,
+generated as in litebird_sim with `ducc0.misc.OofaNoise`
+{cite}`plaszczynski2005`: the white stream of a Cooler cycle, its IFGs back
+to back, is filtered to the power spectrum
+
+$$
+P(f) = \sigma^2 \left(\frac{f^2 + f_\mathrm{knee}^2}{f^2 + f_\mathrm{min}^2}\right)^{\alpha/2},
+$$
+
+with $\sigma$ the white level above (unchanged), $f_\mathrm{knee}$ per band
+(`fknee_lf_mhz`, `fknee_hf_mhz`; 0 = white noise, the default),
+`one_over_f_alpha` and `one_over_f_fmin_hz`. At $f_\mathrm{knee}$ the power is
+$2^{\alpha/2}\sigma^2$, not $2\sigma^2$. The stream restarts at every Cooler
+cycle (ADR 0001), from the filter at rest, and the Recycling factor scales
+the filtered noise of its IFGs.
+
+The mirror modulation moves a bin at optical frequency $\nu$ to the
+electrical frequency $f = \nu\, v_\mathrm{OPD} / c$, with
+$v_\mathrm{OPD} = 2 x_\mathrm{max} / t_\mathrm{IFG}$: 1 Hz at 30 GHz and
+67 Hz at 2000 GHz in the baseline. The fit sees the noise through the
+transform of its rows, which vanishes at $f = 0$ (the fitted constant)
+and, for the symmetric scan, is small for a linear drift: the noise below the
+IFG rate does not reach the spectrum, and the spectra of successive IFGs stay
+uncorrelated (below 4 % at lags of 1–100 IFGs for $f_\mathrm{knee}$ = 2 Hz,
+`test/test_noise.py`). The 1/f noise therefore leaves no stripes in the maps;
+it raises the noise of the bins whose electrical frequency is near or below
+$f_\mathrm{knee}$. With $\alpha = 1$, $f_\mathrm{knee}$ = 2 Hz multiplies
+the variance of the LF bins at 30, 60 and 120 GHz by 2.2, 1.4 and 1.1;
+$f_\mathrm{knee}$ = 50 mHz changes nothing at 1 %. The variance maps include
+this, $\operatorname{Var}(d_k) = \sigma^2 \int P(f)/\sigma^2\,|\hat L_k(f)|^2\,df$
+({func}`fossil_sim.noise.one_over_f_variance_factor`). Slow drifts that do
+leave stripes are multiplicative (gain) or come from the instrument
+temperatures, not modelled here.
+
 Each realization is drawn from a `numpy.random.SeedSequence` keyed by
 (master seed, component, cycle, DU), never by MPI rank (ADR 0001): a run gives
 the same noise for any number of ranks.
