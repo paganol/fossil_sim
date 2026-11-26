@@ -15,6 +15,7 @@ from .config import MODES, Config
 from .ifg import (
     du_interferograms,
     du_interferograms_low_rank,
+    modulation_matrix,
     opd_samples_m,
     sample_weights,
     static_basis_interferograms,
@@ -182,6 +183,14 @@ class SignalModel:
             self.transmission = {
                 du.name: du.transmission(self.sky_freq_ghz, fraction) for du in self.dus
             }
+            # cos(2πνx/c) on the band bins of each DU, (n_samples, n_band):
+            # depends only on the configuration, reused by every block
+            self.modulation = {
+                du.name: modulation_matrix(
+                    self.sky_freq_ghz[self.transmission[du.name] > 0], self.opd_m
+                )
+                for du in self.dus
+            }
         else:
             self.solvers = None
 
@@ -235,6 +244,7 @@ class SignalModel:
                         self.opd_m,
                         gain=self.ifg_response.gain[du.name],
                         transmission=self.transmission[du.name],
+                        modulation=self.modulation[du.name],
                     )
                     for du in self.dus
                 },
@@ -472,6 +482,7 @@ class SignalModel:
                 gain=self.ifg_response.gain[du.name],
                 offset_mjy_sr=self.ifg_response.offset_mjy_sr[du.name],
                 transmission=self.transmission[du.name],
+                modulation=self.modulation[du.name],
                 constant_window=constant_window,
             )
             result[du.name] = self._fit(du, ifgs, noise)
@@ -519,6 +530,7 @@ class SignalModel:
                 gain=self.ifg_response.gain[du.name],
                 offset_mjy_sr=self.ifg_response.offset_mjy_sr[du.name],
                 transmission=self.transmission[du.name],
+                modulation=self.modulation[du.name],
             )
             result[du.name] = self._fit(du, ifgs, noise)
         return result

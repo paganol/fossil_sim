@@ -329,3 +329,22 @@ def test_low_rank_ifgs_equal_per_frequency_ifgs(config, orbit, table, tmp_path):
         assert np.abs(result[name] - spectra).max() < 1e-10 * scale
         # the factorization error (1e-9 of each frequency map) stays far below
         assert np.abs(result[name] - without_factorization[name]).max() < 1e-7 * scale
+
+
+def test_cached_modulation_matrix_gives_identical_ifgs(config, orbit, table):
+    """The per-DU matrix built once by SignalModel equals the one computed per call."""
+    from fossil_sim.ifg import du_interferograms
+
+    model = SignalModel(ifg_config(config, sky_variation=False), orbit, None)
+    sky = model.sky_windows(table)
+    from fossil_sim.signal import bbir_spectra_mjy_sr, port_spectra_mjy_sr
+
+    bbir = bbir_spectra_mjy_sr(model.sky_freq_ghz, table["bbir_port_temperature_k"])
+    port1, port2 = port_spectra_mjy_sr(sky, bbir[:, :, None], table["mode"])
+    for du in model.dus:
+        args = (model.sky_freq_ghz, port1, port2, du, model.opd_m, model.sample_weights)
+        kwargs = {"transmission": model.transmission[du.name]}
+        cached = du_interferograms(
+            *args, modulation=model.modulation[du.name], **kwargs
+        )
+        assert np.array_equal(cached, du_interferograms(*args, **kwargs))

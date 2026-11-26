@@ -25,6 +25,9 @@ Changes on `main` that are not in a release yet.
   DU, instead of sky windows on the generation grid. Same outputs to
   10⁻¹⁰; the full-mission run on the 3 GHz generation grid (690 frequencies,
   cosine edges, 48 ranks on G100) goes from 32 to 10 min.
+- IFG domain: the matrix cos(2πνx/c) on the band bins of each DU is built
+  once by `SignalModel` instead of at every block (248 times per cycle).
+  Identical outputs; a fine-grid cycle on one rank goes from 16.6 to 15.8 s.
 
 ## 0.1.9 (2026-11-25)
 
