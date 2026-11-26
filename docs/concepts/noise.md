@@ -132,8 +132,7 @@ the variance of the LF bins at 30, 60 and 120 GHz by 2.2, 1.4 and 1.1;
 $f_\mathrm{knee}$ = 50 mHz changes nothing at 1 %. The variance maps include
 this, $\operatorname{Var}(d_k) = \sigma^2 \int P(f)/\sigma^2\,|\hat L_k(f)|^2\,df$
 ({func}`fossil_sim.noise.one_over_f_variance_factor`). Slow drifts that do
-leave stripes are multiplicative (gain) or come from the instrument
-temperatures, not modelled here.
+leave stripes are multiplicative: the gain drift of {doc}`instrument`.
 
 Each realization is drawn from a `numpy.random.SeedSequence` keyed by
 (master seed, component, cycle, DU), never by MPI rank (ADR 0001): a run gives

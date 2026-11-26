@@ -223,6 +223,13 @@ class ResponseConfig:
     gain_rms: float = 0.0
     offset_emissivity: tuple[float, ...] = (0.0, 0.0, 0.0, 0.0)
     instrument_temperature_k: float = 2.725
+    # gain drift g → g (1 + δg(t)), one value per IFG and DU, δg with PSD
+    # σ² [(f² + f_knee²) / (f² + f_min²)]^(α/2) (ducc0.misc.OofaNoise);
+    # σ = 0: no drift, f_knee = 0: white
+    gain_drift_sigma: float = 0.0
+    gain_drift_fknee_mhz: float = 0.0
+    gain_drift_alpha: float = 1.0
+    gain_drift_fmin_hz: float = 1e-5
 
 
 CALIBRATION_SOLUTIONS = ("nominal", "true")
@@ -469,6 +476,22 @@ def validate(config: Config) -> None:
     if min(rc.gain) <= 0 or rc.gain_rms < 0 or rc.instrument_temperature_k <= 0:
         raise ValueError(
             "response: gain > 0, gain_rms >= 0 and instrument_temperature_k > 0"
+        )
+    if (
+        min(rc.gain_drift_sigma, rc.gain_drift_fknee_mhz) < 0
+        or rc.gain_drift_alpha <= 0
+        or rc.gain_drift_fmin_hz <= 0
+    ):
+        raise ValueError(
+            "response: gain_drift_sigma, _fknee_mhz >= 0; _alpha, _fmin_hz > 0"
+        )
+    fknee_hz = rc.gain_drift_fknee_mhz * 1e-3
+    if fknee_hz > 0 and not (
+        rc.gain_drift_fmin_hz < fknee_hz < 0.5 / config.timeline.ifg_duration_s
+    ):
+        raise ValueError(
+            "response.gain_drift_fknee_mhz must lie between gain_drift_fmin_hz "
+            "and the Nyquist frequency of the IFGs"
         )
     if config.calibration.solution not in CALIBRATION_SOLUTIONS:
         raise ValueError(f"calibration.solution must be one of {CALIBRATION_SOLUTIONS}")

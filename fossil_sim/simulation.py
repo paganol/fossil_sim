@@ -47,7 +47,12 @@ from .operations import (
     operation_flags,
 )
 from .orbit import L2Orbit
-from .response import calibration_solution, generation_response, true_response
+from .response import (
+    calibration_solution,
+    gain_drift,
+    generation_response,
+    true_response,
+)
 from .scanning import cycle_pointing, ring_circles, ring_spin_axes
 from .signal import (
     bbir_spectra_mjy_sr,
@@ -397,12 +402,26 @@ class SignalModel:
             for i, du in enumerate(self.dus)
         }
 
+    def gain_drift_for_cycle(
+        self, cycle_id: int, table: np.ndarray
+    ) -> dict[str, np.ndarray] | None:
+        """Gain drift factor 1 + δg of each DU over a whole cycle, or None.
+
+        See :func:`fossil_sim.response.gain_drift`.
+        """
+        drift = {
+            du.name: gain_drift(self.config, i, cycle_id, len(table))
+            for i, du in enumerate(self.dus)
+        }
+        return None if drift[self.dus[0].name] is None else drift
+
     def compute(
         self,
         table: np.ndarray,
         zodi: np.ndarray | None = None,
         noise: dict | None = None,
         circles: np.ndarray | None = None,
+        drift: dict | None = None,
     ) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray]:
         """Measured DU spectra, sky estimate and BBIR spectra for a block of IFGs.
 
@@ -411,6 +430,8 @@ class SignalModel:
         to the DU spectra, or to the IFG samples with ``ifg.simulate``, hence
         propagated to the sky estimate, made from the spectra calibrated with
         :attr:`calibration`. ``circles`` comes from :meth:`static_circles`.
+        ``drift`` (from :meth:`gain_drift_for_cycle`, sliced to the block)
+        multiplies the signal and offset of each DU, before the noise.
         """
         bbir = bbir_spectra_mjy_sr(self.freq_ghz, table["bbir_port_temperature_k"])
         if self.config.ifg.simulate:
@@ -419,11 +440,15 @@ class SignalModel:
             )
             if isinstance(circles, StaticCircles):
                 du_spectra = self.ifg_du_spectra_low_rank(
-                    table, zodi, circles, sky_bbir, noise
+                    table, zodi, circles, sky_bbir, noise, drift
                 )
             else:
                 du_spectra = self.ifg_du_spectra(
-                    table, self.sky_windows(table, zodi, circles), sky_bbir, noise
+                    table,
+                    self.sky_windows(table, zodi, circles),
+                    sky_bbir,
+                    noise,
+                    drift,
                 )
         else:
             sky = self.sky_mjy_sr(table, zodi, circles=circles)
@@ -431,6 +456,10 @@ class SignalModel:
             du_spectra = self.response.apply(
                 du_differential_spectra(self.freq_ghz, port1, port2, self.dus)
             )
+            if drift is not None:
+                du_spectra = {
+                    name: s * drift[name][:, None] for name, s in du_spectra.items()
+                }
             if noise is not None:
                 du_spectra = {name: s + noise[name] for name, s in du_spectra.items()}
         estimate = sky_estimate_mjy_sr(
@@ -448,6 +477,7 @@ class SignalModel:
         sky_windows: np.ndarray,
         bbir: np.ndarray,
         noise: dict[str, np.ndarray] | None = None,
+        drift: dict[str, np.ndarray] | None = None,
     ) -> dict[str, np.ndarray]:
         """DU differential spectra recovered from simulated interferograms.
 
@@ -485,7 +515,7 @@ class SignalModel:
                 modulation=self.modulation[du.name],
                 constant_window=constant_window,
             )
-            result[du.name] = self._fit(du, ifgs, noise)
+            result[du.name] = self._fit(du, ifgs, noise, drift)
         return result
 
     def ifg_du_spectra_low_rank(
@@ -495,6 +525,7 @@ class SignalModel:
         circles: StaticCircles,
         bbir: np.ndarray,
         noise: dict[str, np.ndarray] | None = None,
+        drift: dict[str, np.ndarray] | None = None,
     ) -> dict[str, np.ndarray]:
         """As :meth:`ifg_du_spectra`, with the Static sky in its low-rank basis.
 
@@ -532,11 +563,15 @@ class SignalModel:
                 transmission=self.transmission[du.name],
                 modulation=self.modulation[du.name],
             )
-            result[du.name] = self._fit(du, ifgs, noise)
+            result[du.name] = self._fit(du, ifgs, noise, drift)
         return result
 
-    def _fit(self, du, ifgs: np.ndarray, noise: dict | None) -> np.ndarray:
-        """Add the sample noise of the DU and fit its band spectra."""
+    def _fit(
+        self, du, ifgs: np.ndarray, noise: dict | None, drift: dict | None = None
+    ) -> np.ndarray:
+        """Apply the gain drift, add the sample noise of the DU, fit its spectra."""
+        if drift is not None:
+            ifgs *= drift[du.name][:, None]
         if noise is not None:
             ifgs += noise[du.name]
         return ifgs @ self.solvers[du.name].T
@@ -558,12 +593,13 @@ class SignalModel:
 
 
 def write_cycle_tod(
-    path: Path, config: Config, model: SignalModel, table, du_spectra
+    path: Path, config: Config, model: SignalModel, table, du_spectra, drift=None
 ) -> None:
     """Write one Cooler cycle (IFG table + measured DU spectra) to HDF5.
 
     The spectra are uncalibrated (:mod:`fossil_sim.response`); the true gain
-    and offset of each DU are stored under ``response/``.
+    and offset of each DU are stored under ``response/``, with the gain drift
+    factor per IFG (``drift``, from :meth:`SignalModel.gain_drift_for_cycle`).
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(path, "w") as f:
@@ -579,6 +615,8 @@ def write_cycle_tod(
             f.create_dataset(
                 f"response/offset/{du.name}", data=model.response.offset_mjy_sr[du.name]
             )
+            if drift is not None:
+                f.create_dataset(f"response/gain_drift/{du.name}", data=drift[du.name])
         for key, value in config.provenance().items():
             f.attrs[key] = str(value)
 
@@ -716,6 +754,7 @@ def _process_signal(config, model, table, spectral_maps, cycle_id, output_dir) -
     # if the frequency grid gets much finer
     zodi = model.zodi_for_cycle(cycle_id, table)
     noise = model.noise_for_cycle(cycle_id, table)
+    drift = model.gain_drift_for_cycle(cycle_id, table)
     circles = model.static_circles(cycle_id)
     block_ifgs = IFG_BLOCK_IFGS if config.ifg.simulate else SIGNAL_BLOCK_IFGS
     for start in range(0, table.size, block_ifgs):
@@ -725,7 +764,12 @@ def _process_signal(config, model, table, spectral_maps, cycle_id, output_dir) -
         block_noise = (
             None if noise is None else {name: n[chunk] for name, n in noise.items()}
         )
-        du_spectra, estimate, _ = model.compute(block, block_zodi, block_noise, circles)
+        block_drift = (
+            None if drift is None else {name: g[chunk] for name, g in drift.items()}
+        )
+        du_spectra, estimate, _ = model.compute(
+            block, block_zodi, block_noise, circles, block_drift
+        )
         if config.output.save_tod:
             tod_blocks.append(du_spectra)
         valid = block["flags"] == 0
@@ -742,7 +786,7 @@ def _process_signal(config, model, table, spectral_maps, cycle_id, output_dir) -
             for du in model.dus
         }
         path = Path(output_dir) / "tod" / f"cycle_{cycle_id:05d}.h5"
-        write_cycle_tod(path, config, model, table, du_spectra)
+        write_cycle_tod(path, config, model, table, du_spectra, drift)
 
 
 def _load_static_sky(config: Config, comm) -> StaticSky:

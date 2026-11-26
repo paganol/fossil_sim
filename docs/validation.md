@@ -67,6 +67,11 @@ physics and the mission design.
   variance maps to 5 % (f_knee = 2 Hz: LF bins up to × 2.2), spectra of
   successive IFGs uncorrelated to 4 %; white realization unchanged with
   f_knee = 0.
+- Gain drift: reproducible and keyed by cycle and DU, white rms to 2 %, power
+  spectrum within 10 % of the model for α = 1 and 2; it multiplies the signal
+  and offset of each DU but not the noise, in the spectral and IFG domains
+  (to 10⁻⁹); TOD spectra of a drifting cycle equal the steady ones times the
+  stored drift.
 - Noise: per-IFG level equal to the PIXIE formula; realizations reproducible
   and keyed by cycle; Recycling IFGs × `recycling_noise_factor`; (noisy −
   noiseless) sky map normalized by the variance map has unit standard

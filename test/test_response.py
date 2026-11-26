@@ -8,11 +8,12 @@ from fossil_sim.noise import sky_estimate_noise_variance
 from fossil_sim.operations import mode_sky_ports
 from fossil_sim.response import (
     calibration_solution,
+    gain_drift,
     generation_response,
     nominal_response,
     true_response,
 )
-from fossil_sim.simulation import SignalModel, build_ifg_table
+from fossil_sim.simulation import SignalModel, build_ifg_table, run_simulation
 from fossil_sim.spectra import blackbody_mjy_sr
 
 GAIN = (1.02, 0.97, 1.05, 0.99)
@@ -179,6 +180,12 @@ def test_noise_variance_is_divided_by_the_calibration_gain(config):
         ("offset_emissivity", [0.0]),
         ("gain_rms", -0.1),
         ("instrument_temperature_k", 0.0),
+        ("gain_drift_sigma", -1e-3),
+        ("gain_drift_fknee_mhz", -1.0),
+        ("gain_drift_alpha", 0.0),
+        ("gain_drift_fmin_hz", 0.0),
+        ("gain_drift_fknee_mhz", 1e-3),  # below gain_drift_fmin_hz (1e-5 Hz)
+        ("gain_drift_fknee_mhz", 250.0),  # at the IFG Nyquist frequency (0.25 Hz)
     ],
 )
 def test_invalid_response_is_rejected(config, key, value):
@@ -195,3 +202,93 @@ def test_invalid_response_is_rejected(config, key, value):
 def test_invalid_calibration_solution_is_rejected(config):
     with pytest.raises(ValueError):
         replace(config, calibration=replace(config.calibration, solution="bbir"))
+
+
+def drift_config(config, sigma=1e-3, fknee_mhz=0.0, alpha=1.0):
+    return replace(
+        config,
+        response=replace(
+            config.response,
+            gain_drift_sigma=sigma,
+            gain_drift_fknee_mhz=fknee_mhz,
+            gain_drift_alpha=alpha,
+        ),
+    )
+
+
+def test_gain_drift_keyed_and_scaled(config):
+    assert gain_drift(config, 0, 0, 100) is None
+    cfg = drift_config(config, sigma=2e-3)
+    drift = gain_drift(cfg, 1, 7, 50000)
+    np.testing.assert_array_equal(drift, gain_drift(cfg, 1, 7, 50000))
+    assert not np.array_equal(drift, gain_drift(cfg, 1, 8, 50000))
+    assert not np.array_equal(drift, gain_drift(cfg, 2, 7, 50000))
+    assert drift.mean() == pytest.approx(1.0, abs=1e-4)
+    assert drift.std() == pytest.approx(2e-3, rel=0.02)
+
+
+@pytest.mark.parametrize("alpha", [1.0, 2.0])
+def test_gain_drift_spectrum(config, alpha):
+    from scipy.signal import welch
+
+    cfg = drift_config(config, sigma=1e-3, fknee_mhz=10.0, alpha=alpha)
+    rate_hz = 1 / cfg.timeline.ifg_duration_s
+    delta = (gain_drift(cfg, 0, 0, 2**20) - 1) / 1e-3
+    freq_hz, psd = welch(delta, fs=rate_hz, nperseg=2**14)
+    psd = psd * rate_hz / 2  # one-sided PSD of unit white noise = 2 / rate
+    for f in (1e-3, 3e-3, 1e-2, 3e-2, 0.1):
+        i = np.argmin(np.abs(freq_hz - f))
+        expected = ((f**2 + 1e-4) / f**2) ** (alpha / 2)
+        assert psd[i] == pytest.approx(expected, rel=0.1)
+
+
+@pytest.mark.parametrize("simulate", [False, True])
+def test_gain_drift_scales_signal_not_noise(config, orbit, table, simulate):
+    cfg = drift_config(response_config(config, simulate=simulate), sigma=0.01)
+    cfg = replace(cfg, noise=replace(cfg.noise, enabled=True))
+    model = SignalModel(cfg, orbit)
+    drift = {
+        name: g[: len(table)]
+        for name, g in model.gain_drift_for_cycle(
+            0, build_ifg_table(cfg, orbit, 0)
+        ).items()
+    }
+    noise = model.noise_for_cycle(0, table)
+    noise = {name: n[0 : len(table)] for name, n in noise.items()}
+    clean = model.compute(table)[0]
+    noisy = model.compute(table, noise=noise)[0]
+    drifting = model.compute(table, noise=noise, drift=drift)[0]
+    for name, x in clean.items():
+        expected = noisy[name] + (drift[name][:, None] - 1) * x
+        np.testing.assert_allclose(
+            drifting[name], expected, rtol=0, atol=1e-9 * np.abs(x).max()
+        )
+
+
+def test_gain_drift_in_tod(config, tmp_path):
+    import h5py
+
+    cfg = replace(
+        response_config(config, gain_rms=0.0),
+        output=replace(config.output, save_tod=True),
+    )
+    run_simulation(cfg, num_of_cycles=1, output_dir=tmp_path / "steady")
+    run_simulation(
+        drift_config(cfg, sigma=1e-3, fknee_mhz=10.0),
+        num_of_cycles=1,
+        output_dir=tmp_path / "drift",
+    )
+    name = "cycle_00000.h5"
+    with (
+        h5py.File(tmp_path / "steady" / "tod" / name) as steady,
+        h5py.File(tmp_path / "drift" / "tod" / name) as drifting,
+    ):
+        assert "gain_drift" not in steady["response"]
+        for du in detector_units(cfg.instrument):
+            drift = drifting[f"response/gain_drift/{du.name}"][:]
+            assert drift.size == steady[f"spectra/{du.name}"].shape[0]
+            np.testing.assert_allclose(
+                drifting[f"spectra/{du.name}"][:],
+                steady[f"spectra/{du.name}"][:] * drift[:, None],
+                rtol=1e-12,
+            )

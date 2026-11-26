@@ -11,13 +11,18 @@ o(ν) = ε B_ν(T_inst), with ε signed per DU. The gain is a per-DU scalar time
 1 + a Gaussian fluctuation per bin of rms ``gain_rms``, constant over the
 mission and keyed by (seed, component, DU) (ADR 0001).
 
+The gain can drift in time, g → g (1 + δg(t)) (:func:`gain_drift`): one
+value per IFG and DU, the same in every bin, on the signal and the offset but
+not on the noise. It is not in the calibration solution.
+
 The sky is reconstructed from calibrated spectra d / ĝ − ô, with (ĝ, ô) a
 calibration solution: ``nominal`` (ĝ = 1, ô = 0) or ``true`` (the simulated
-response, an oracle).
+response without drift, an oracle).
 """
 
 from dataclasses import dataclass
 
+import ducc0
 import numpy as np
 
 from .config import Config
@@ -26,6 +31,7 @@ from .spectra import blackbody_mjy_sr
 
 # SeedSequence component of the gain fluctuations (noise uses 1 and 2)
 RESPONSE_COMPONENT_ID = 3
+GAIN_DRIFT_COMPONENT_ID = 4
 
 
 @dataclass(frozen=True)
@@ -130,3 +136,35 @@ def calibration_solution(
     if config.calibration.solution == "true":
         return true_response(config, freq_ghz, dus)
     return nominal_response(freq_ghz, dus)
+
+
+def gain_drift(
+    config: Config, du_index: int, cycle_id: int, num_ifgs: int
+) -> np.ndarray | None:
+    """Gain drift factor 1 + δg of one DU over a Cooler cycle, (num_ifgs,).
+
+    δg is drawn per IFG, as in litebird_sim, with ``ducc0.misc.OofaNoise``:
+    PSD σ² [(f² + f_knee²) / (f² + f_min²)]^(α/2) sampled at 1 / t_IFG, σ =
+    ``gain_drift_sigma`` the white rms per IFG (white only for f_knee = 0).
+    One stream per cycle and DU, keyed by (seed, component, cycle, DU)
+    (ADR 0001), from the filter at rest. None without drift.
+    """
+    rc = config.response
+    if rc.gain_drift_sigma == 0:
+        return None
+    seed = np.random.SeedSequence(
+        [config.simulation.master_seed, GAIN_DRIFT_COMPONENT_ID, cycle_id, du_index]
+    )
+    drift = np.random.default_rng(seed).standard_normal(num_ifgs)
+    if rc.gain_drift_fknee_mhz > 0:
+        drift = ducc0.misc.OofaNoise(
+            sigmawhite=1.0,
+            f_knee=rc.gain_drift_fknee_mhz * 1e-3,
+            f_min=rc.gain_drift_fmin_hz,
+            f_samp=1 / config.timeline.ifg_duration_s,
+            slope=-rc.gain_drift_alpha,
+        ).filterGaussian(drift)
+    factor = 1.0 + rc.gain_drift_sigma * drift
+    if np.any(factor <= 0):
+        raise ValueError("response: non-positive drifting gain, lower gain_drift_sigma")
+    return factor

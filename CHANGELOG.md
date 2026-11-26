@@ -8,6 +8,18 @@ tagged releases.
 
 Changes on `main` that are not in a release yet.
 
+- Gain drift in time, g → g (1 + γ(t)): one γ per IFG and DU, the same in
+  every bin, drawn as in litebird_sim with `ducc0.misc.OofaNoise` at the IFG
+  rate (white rms per IFG, knee, slope, f_min), independent DUs, one stream
+  per Cooler cycle. It multiplies signal and offset, not the noise, in the
+  spectral and IFG domains; the calibration solution does not follow it, so
+  it leaves stripes in the maps. The TOD files store 1 + γ under
+  `response/gain_drift/`.
+  **Config change:** new keys `response.gain_drift_sigma` (default 0, no
+  drift), `response.gain_drift_fknee_mhz` (0), `response.gain_drift_alpha`
+  (1), `response.gain_drift_fmin_hz` (1e-5); the configuration hash changes
+  for every configuration.
+
 - 1/f detector noise on the IFG samples (`ifg.simulate = true`), generated
   as in litebird_sim with `ducc0.misc.OofaNoise` on the white stream of each
   Cooler cycle: PSD σ² [(f² + f_knee²) / (f² + f_min²)]^(α/2), knee per band.

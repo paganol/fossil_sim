@@ -168,6 +168,12 @@ gain_rms = 0.0                            # TBD — rms of the per-bin fluctuati
 offset_emissivity = [0.0, 0.0, 0.0, 0.0]  # TBD — signed emissivity imbalance ε between the
                                           # arms: offset o = ε B_ν(instrument_temperature_k)
 instrument_temperature_k = 2.725          # TBD — placeholder instrument temperature
+# Gain drift g → g (1 + γ(t)), one γ per IFG and DU, independent DUs (docs:
+# Instrument and signal), PSD σ² [(f² + f_knee²) / (f² + f_min²)]^(α/2) at 1 / t_IFG
+gain_drift_sigma = 0.0                    # TBD — white rms of γ per IFG; 0: no drift
+gain_drift_fknee_mhz = 0.0                # TBD — 0: white
+gain_drift_alpha = 1.0                    # TBD
+gain_drift_fmin_hz = 1e-5                 # TBD — placeholder (as litebird_sim)
 
 [calibration]
 solution = "nominal"                      # calibration used for the sky estimate:

@@ -90,11 +90,36 @@ DUs and fixed by the seed for the whole mission. The offset is the emission
 imbalance between the two arms, $o(\nu) = \varepsilon\, B_\nu(T_\mathrm{inst})$,
 with a signed emissivity $\varepsilon$ per DU: an imbalance that enters like
 $I_1 - I_2$ has $\varepsilon_R = -\varepsilon_L$. The baseline is the ideal
-instrument, $g = 1$ and $o = 0$; gain drifts in time are not modelled.
+instrument, $g = 1$ and $o = 0$.
 
 In the IFG domain the gain multiplies both the modulated and the unmodulated
 term of the interferogram, and the offset adds $g\,o$ to the modulated
 amplitude, so the fit recovers the same $d$ as in the spectral domain.
+
+### Gain drift
+
+The gain can drift in time, $g(\nu) \to g(\nu)\,[1 + \gamma(t)]$, with one
+value of $\gamma$ per IFG and DU, the same in every bin, constant within the
+IFG ({func}`fossil_sim.response.gain_drift`). As in litebird_sim, $\gamma$ is
+drawn with `ducc0.misc.OofaNoise` at the IFG rate $1/t_\mathrm{IFG}$, with
+power spectrum
+
+$$
+P_\gamma(f) = \sigma_\gamma^2 \left(\frac{f^2 + f_\mathrm{knee}^2}{f^2 + f_\mathrm{min}^2}\right)^{\alpha/2},
+$$
+
+$\sigma_\gamma$ = `gain_drift_sigma` the white rms per IFG (white only for
+`gain_drift_fknee_mhz` = 0), `gain_drift_alpha` and `gain_drift_fmin_hz`;
+`gain_drift_sigma` = 0 (the baseline) switches it off. The four DUs drift
+independently, one stream per Cooler cycle and DU from the filter at rest
+(ADR 0001). The drift multiplies the signal and the offset, not the
+detector noise; in the IFG domain it multiplies the whole interferogram,
+unmodulated term included, before the sample noise. The calibration solution
+does not follow it (also with `calibration.solution = "true"`), so the sky
+estimate carries $\gamma(t)\,[s(I_1 - I_2) + o]$: in the science Modes the
+sky minus the BBIR plus the offset, scaled by a drift correlated over many
+IFGs, hence stripes along the scans. The TOD files store $1 + \gamma$ of each
+DU under `response/gain_drift/`.
 
 ## Sky reconstruction
 
