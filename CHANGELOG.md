@@ -8,6 +8,24 @@ tagged releases.
 
 Changes on `main` that are not in a release yet.
 
+- Static sky sampled through a low-rank factorization in frequency of each
+  alm cube (SVD, every frequency map kept within `static_sky.rank_epsilon`
+  of its rms, default 10⁻⁹ = the synthesis accuracy; 0 = off, one synthesis
+  per frequency): 87 syntheses per cycle instead of 2070 on the
+  690-frequency generation grid, and the cubes are no longer loaded by each
+  rank (about 2.4 GB less per rank). The factorization is cached next to the
+  cubes, one file per threshold (`*_low_rank_1e-09.h5`), built by
+  `scripts/build_static_sky.py` or by the first run. Same outputs to the
+  synthesis accuracy.
+  **Config change:** new key `static_sky.rank_epsilon` (optional, default
+  1e-9); the configuration hash changes for every configuration (the
+  Static-sky cache key does not).
+- IFG domain with sky variation: the Static sky enters the interferograms
+  through the IFGs of its low-rank basis spectra, computed once per cycle and
+  DU, instead of sky windows on the generation grid. Same outputs to
+  10⁻¹⁰; the full-mission run on the 3 GHz generation grid (690 frequencies,
+  cosine edges, 48 ranks on G100) goes from 32 to 10 min.
+
 ## 0.1.9 (2026-11-25)
 
 - Add a response for each DU, d = g (s (I₁ − I₂) + o) + n: gain per DU with a

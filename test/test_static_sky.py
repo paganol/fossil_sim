@@ -5,7 +5,12 @@ import numpy as np
 import pytest
 
 from fossil_sim.config import config_from_dict
-from fossil_sim.input_sky import StaticSky, static_doppler_mjy_sr
+from fossil_sim.input_sky import (
+    SYNTHESIS_EPSILON,
+    StaticSky,
+    compress_alm_cube,
+    static_doppler_mjy_sr,
+)
 from fossil_sim.instrument import frequency_grid_ghz
 from fossil_sim.simulation import SignalModel, build_ifg_table
 
@@ -63,11 +68,87 @@ def test_cache_is_reused_and_keyed(config, tmp_path):
     second = StaticSky(
         cfg, FREQ_GHZ, 1.6, emission=synthetic_emission(galactic_monopole=9.0)
     )
-    assert np.array_equal(first.alm, second.alm)
+    direction = random_directions()
+    assert np.array_equal(first.sample(direction), second.sample(direction))
+    # the low-rank factorization is read back: the cubes are not even loaded
+    assert second.alm is None and second.ranks == first.ranks
     other = StaticSky(
         replace(cfg, models=("d1",)), FREQ_GHZ, 1.6, emission=synthetic_emission(9.0)
     )
     assert other.path != first.path
+
+
+def test_compress_alm_cube_accuracy_per_frequency():
+    """Rank found from the data; each frequency map kept to epsilon of its rms."""
+    lmax = 15
+    n_alm = hp.Alm.getsize(lmax)
+    rng = np.random.default_rng(1)
+    shapes = rng.normal(size=(3, n_alm)) + 1j * rng.normal(size=(3, n_alm))
+    shapes[:, : lmax + 1] = shapes[:, : lmax + 1].real  # m = 0 real
+    freq = np.linspace(1.0, 20.0, 40)
+    # three spectral shapes spanning 10 orders of magnitude, plus a tiny fourth
+    spectra = np.column_stack([freq**-3, freq**2, np.exp(freq), 1e-12 * freq**4])
+    cube = spectra[:, :3] @ shapes + spectra[:, 3:] @ shapes[:1]
+    coefficients, basis = compress_alm_cube(cube, lmax, 1e-9)
+    assert basis.shape[0] == 3  # the fourth is below 1e-9 of every frequency
+    assert np.isrealobj(coefficients)
+    error = np.linalg.norm(coefficients @ basis - cube, axis=1)
+    assert np.all(error <= 2e-9 * np.linalg.norm(cube, axis=1))
+    assert np.all(basis[:, : lmax + 1].imag == 0)
+
+
+def test_low_rank_sampling_matches_per_frequency_synthesis(config, tmp_path):
+    import ducc0
+
+    cfg = small_config(config.static_sky, tmp_path)
+    freq_ghz = np.linspace(30.0, 600.0, 40)
+    sky = StaticSky(cfg, freq_ghz, 1.6, emission=synthetic_emission(cosmological=1.0))
+    assert max(sky.ranks) < freq_ghz.size
+    direction = random_directions()
+    loc = np.column_stack(hp.vec2ang(direction))
+    for cube, sampled in zip(
+        (sky.alm, *sky.doppler_alm),
+        (sky.sample(direction), *sky.sample_doppler(direction)),
+        strict=True,
+    ):
+        direct = np.column_stack(
+            [
+                ducc0.sht.synthesis_general(
+                    alm=a, spin=0, lmax=cfg.lmax, loc=loc, epsilon=SYNTHESIS_EPSILON
+                )[0]
+                for a in cube
+            ]
+        )
+        scale = np.sqrt((direct**2).mean(axis=0))
+        assert np.all(np.abs(sampled - direct) <= 1e-7 * scale)
+
+
+def test_rank_epsilon_zero_synthesizes_every_frequency(config, tmp_path):
+    cfg = small_config(config.static_sky, tmp_path)
+    freq_ghz = np.linspace(30.0, 600.0, 20)
+    emission = synthetic_emission(cosmological=1.0)
+    exact = StaticSky(replace(cfg, rank_epsilon=0.0), freq_ghz, 1.6, emission)
+    assert exact.low_rank is None and exact.ranks == []
+    assert not list(tmp_path.glob("*_low_rank_*.h5"))
+    loose = StaticSky(replace(cfg, rank_epsilon=1e-3), freq_ghz, 1.6, emission)
+    tight = StaticSky(cfg, freq_ghz, 1.6, emission)
+    # one factorization file per threshold, fewer components when looser
+    assert loose.low_rank_path != tight.low_rank_path
+    assert sum(loose.ranks) <= sum(tight.ranks)
+    direction = random_directions()
+    reference = exact.sample(direction)
+    scale = np.sqrt((reference**2).mean(axis=0))
+    assert np.all(np.abs(tight.sample(direction) - reference) <= 1e-7 * scale)
+    with pytest.raises(ValueError):
+        exact.amplitudes(direction)
+
+
+def test_rank_epsilon_validated(config):
+    values = config.to_dict()
+    for value in (-1e-9, 1.0, float("nan")):
+        values["static_sky"]["rank_epsilon"] = value
+        with pytest.raises(ValueError):
+            config_from_dict(values)
 
 
 def test_nearest_sampling_close_to_alm(config, tmp_path):

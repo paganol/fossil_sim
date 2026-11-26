@@ -17,7 +17,7 @@ identify a run ({meth}`fossil_sim.config.Config.provenance`).
 | `[maps]` | HEALPix resolutions |
 | `[instrument]` | frequency grid, band, dichroic split, band edges (IFG domain), beam |
 | `[sky]` | Isotropic backgrounds, solar velocity, beam on the dipole |
-| `[static_sky]` | pysm3 models, resolution, cache, sampling, Doppler, synthesis threads |
+| `[static_sky]` | pysm3 models, resolution, cache, sampling, Doppler, synthesis threads, low-rank threshold |
 | `[zodi]` | zodipy model, extrapolation, quadrature, parallelism |
 | `[noise]` | NEPs, étendue, efficiencies, Recycling noise factor |
 | `[response]` | true DU gain (per DU, per-bin fluctuation) and offset (emissivity, instrument temperature) |

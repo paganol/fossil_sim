@@ -112,6 +112,10 @@ cache_dir = "cache/static_sky"            # relative to the working directory
 sampling = "alm"                          # "alm" (ducc0, exact) | "nearest" (pixel)
 nthreads = 0                              # synthesis threads, 0 = all cores (performance only;
                                           # lower it when several MPI ranks share a node)
+rank_epsilon = 1e-9                       # sampling "alm": low-rank factorization in frequency,
+                                          # every frequency map within rank_epsilon of its rms
+                                          # (1e-9 = synthesis accuracy); 0 = off, one synthesis
+                                          # per frequency and IFGs on the full spectra (slower)
 
 [zodi]
 # Zodiacal light (zodipy), seen from the spacecraft position of [orbit].

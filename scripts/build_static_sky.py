@@ -1,4 +1,4 @@
-"""Build (or check) the cached Static-sky cube for a configuration.
+"""Build (or check) the cached Static-sky cubes and their low-rank factorization.
 
 Usage::
 
@@ -27,4 +27,4 @@ sky = StaticSky(
     sky_frequency_grid_ghz(config),
     config.instrument.beam_fwhm_deg,
 )
-print(f"{sky.path}: {sky.alm.shape}, {time.perf_counter() - start:.0f} s")
+print(f"{sky.path}: ranks {sky.ranks}, {time.perf_counter() - start:.0f} s")

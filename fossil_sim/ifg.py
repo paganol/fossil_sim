@@ -147,14 +147,7 @@ def du_interferograms(
     g also on the unmodulated term. ``constant_window`` flags the IFGs whose
     Port spectra do not change over the window (detected when not given).
     """
-    if transmission is None:
-        mask = du.band_mask(freq_ghz)
-        factor = np.ones(np.count_nonzero(mask))
-    else:
-        mask = transmission > 0
-        factor = transmission[mask]
-    if gain is not None:
-        factor = factor * gain
+    mask, factor = _band_factor(freq_ghz, du, gain, transmission)
     freq_step_ghz = _frequency_step_ghz(freq_ghz, freq_step_ghz)
     band = _band_index(mask)
     port1, port2 = port1_mjy_sr[..., band], port2_mjy_sr[..., band]
@@ -174,6 +167,103 @@ def du_interferograms(
     )
     ifgs = total @ weights.T + du.output_sign * modulated
     return modulation_efficiency * freq_step_ghz * ifgs
+
+
+def static_basis_interferograms(
+    freq_ghz: np.ndarray,
+    spectra: np.ndarray,
+    du: DetectorUnit,
+    opd_m: np.ndarray,
+    *,
+    gain: np.ndarray | None = None,
+    transmission: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """IFG terms of each basis spectrum U_k(ν) of the Static sky, for one DU.
+
+    ``spectra`` is (n_freq, K). Returns the modulated term Σ_ν cos(2πνx/c)
+    f(ν) U_k(ν), (n_samples, K), and the unmodulated one Σ_ν f(ν) U_k(ν),
+    (K,), with f the transmission times the gain (as in
+    :func:`du_interferograms`, without m Δν). Computed once per cycle, they
+    replace the sum over the frequencies in :func:`du_interferograms_low_rank`.
+    """
+    mask, factor = _band_factor(freq_ghz, du, gain, transmission)
+    band = spectra[mask] * factor[:, None]
+    return modulation_matrix(freq_ghz[mask], opd_m) @ band, band.sum(axis=0)
+
+
+def du_interferograms_low_rank(
+    freq_ghz: np.ndarray,
+    port1_mjy_sr: np.ndarray,
+    port2_mjy_sr: np.ndarray,
+    static_window: np.ndarray,
+    sky_sign: np.ndarray,
+    sky_ports: np.ndarray,
+    basis: tuple[np.ndarray, np.ndarray],
+    du: DetectorUnit,
+    opd_m: np.ndarray,
+    weights: np.ndarray,
+    modulation_efficiency: float = 1.0,
+    *,
+    freq_step_ghz: float | None = None,
+    gain: np.ndarray | None = None,
+    offset_mjy_sr: np.ndarray | None = None,
+    transmission: np.ndarray | None = None,
+) -> np.ndarray:
+    """Interferograms of one DU, (n_ifg, n_samples), Static sky in a low-rank basis.
+
+    The Port spectra are ``port1_mjy_sr`` and ``port2_mjy_sr`` (n_ifg,
+    n_freq), constant over the IFG (sky without the Static sky, or BBIR),
+    plus on each Port that sees the sky the Static sky Σ_k a_k U_k(ν), with
+    the amplitudes a_k on the window of each IFG, ``static_window`` (n_window,
+    n_ifg, K), window-major. ``sky_sign`` is (Port 1 on sky) − (Port 2 on
+    sky) and ``sky_ports`` their sum; ``basis`` comes from
+    :func:`static_basis_interferograms` with the same gain and transmission.
+    Equal to :func:`du_interferograms` on the full Port spectra, at a cost per
+    sample proportional to K instead of the number of band frequencies.
+    """
+    mask, factor = _band_factor(freq_ghz, du, gain, transmission)
+    freq_step_ghz = _frequency_step_ghz(freq_ghz, freq_step_ghz)
+    band = _band_index(mask)
+    port1, port2 = port1_mjy_sr[:, band], port2_mjy_sr[:, band]
+    total = port1 @ factor + port2 @ factor
+    difference = port1 - port2
+    if offset_mjy_sr is not None:
+        difference += du.output_sign * offset_mjy_sr
+    difference *= factor
+    window_sum = weights.sum(axis=1)
+    modulated = (difference @ modulation_matrix(freq_ghz[mask], opd_m).T) * window_sum
+    ifgs = total[:, None] * window_sum + du.output_sign * modulated
+    # Static sky, only on the IFGs with a Port on the sky
+    rows = np.flatnonzero(sky_ports)
+    if rows.size:
+        window = static_window if rows.size == len(total) else static_window[:, rows]
+        basis_modulated, basis_unmodulated = basis
+        varying = _interpolated_modulation(
+            window, basis_modulated, weights, np.zeros(rows.size, dtype=bool)
+        )
+        unmodulated = (window @ basis_unmodulated).T @ weights.T
+        ifgs[rows] += sky_ports[rows, None] * unmodulated + (
+            du.output_sign * sky_sign[rows, None] * varying
+        )
+    return modulation_efficiency * freq_step_ghz * ifgs
+
+
+def _band_factor(
+    freq_ghz: np.ndarray,
+    du: DetectorUnit,
+    gain: np.ndarray | None,
+    transmission: np.ndarray | None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Band bins of a DU and the factor on them: transmission (or 1) times gain."""
+    if transmission is None:
+        mask = du.band_mask(freq_ghz)
+        factor = np.ones(np.count_nonzero(mask))
+    else:
+        mask = transmission > 0
+        factor = transmission[mask]
+    if gain is not None:
+        factor = factor * gain
+    return mask, factor
 
 
 def _band_index(mask: np.ndarray) -> slice | np.ndarray:

@@ -152,6 +152,9 @@ class StaticSkyConfig:
     cache_dir: str
     sampling: str
     nthreads: int = 0  # synthesis threads, 0 = all cores (performance only)
+    # relative accuracy of the low-rank factorization in frequency (sampling
+    # "alm"); 0 = no factorization, one synthesis per frequency
+    rank_epsilon: float = 1e-9
 
 
 # pysm3 models that would double count the Isotropic backgrounds or are not
@@ -374,6 +377,8 @@ def validate(config: Config) -> None:
         raise ValueError("static_sky: nside and lmax must be >= 1")
     if st.nthreads < 0:
         raise ValueError("static_sky.nthreads must be >= 0 (0 = all cores)")
+    if not 0 <= st.rank_epsilon < 1:  # also NaN
+        raise ValueError("static_sky.rank_epsilon must be in [0, 1) (0 = off)")
     if config.zodi.gauss_quad_degree < 1 or config.zodi.nprocesses < 1:
         raise ValueError("zodi: gauss_quad_degree and nprocesses must be >= 1")
     if not bbir.setpoints_k or len(bbir.port_offsets_k) != 2:

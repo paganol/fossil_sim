@@ -25,6 +25,20 @@ class ProfileSky:
         return zero, zero
 
 
+class LowRankProfileSky(ProfileSky):
+    """ProfileSky with the low-rank interface of StaticSky (rank 1, no Doppler)."""
+
+    @property
+    def low_rank(self):
+        return [(self.amplitude[:, None], None)]
+
+    def amplitudes(self, direction):
+        return [self.profile(direction)[:, None]]
+
+
+SKY_STUBS = pytest.mark.parametrize("sky_stub", [ProfileSky, LowRankProfileSky])
+
+
 def blob(center, fwhm_deg=1.6):
     """Gaussian blob of the beam size."""
     sigma = np.deg2rad(fwhm_deg) / np.sqrt(8 * np.log(2))
@@ -99,10 +113,11 @@ def test_single_bin_ifg_matches_spectral(config, orbit, table, freq_ghz):
     np.testing.assert_allclose(sky_recovered, sky_expected, atol=1e-10)
 
 
-def test_sky_on_the_ring_is_interpolated_to_the_samples(config, orbit, table):
+@SKY_STUBS
+def test_sky_on_the_ring_is_interpolated_to_the_samples(config, orbit, table, sky_stub):
     cfg = ifg_config(config)
     model = SignalModel(cfg, orbit, None)
-    model.static_sky = ProfileSky(model.freq_ghz, blob(table["boresight"][10]))
+    model.static_sky = sky_stub(model.freq_ghz, blob(table["boresight"][10]))
     circles = model.static_circles(0)
     static = (
         model.sky_windows(table, None, circles)
@@ -122,14 +137,15 @@ def test_sky_on_the_ring_is_interpolated_to_the_samples(config, orbit, table):
     assert np.ptp(exact[10, :, 0]) > 0.03 * np.abs(exact[10, :, 0]).max()
 
 
-def test_linear_sky_change_during_the_ifg_cancels(config, orbit, table):
+@SKY_STUBS
+def test_linear_sky_change_during_the_ifg_cancels(config, orbit, table, sky_stub):
     """A symmetric scan rejects the part of the sky odd in time."""
     i = 10
     tangent = np.cross(
         ring_spin_axes(config, orbit, 0)[table["ring_in_cycle"][i]],
         table["boresight"][i],
     )
-    sky = lambda freq: ProfileSky(freq, lambda n: n @ tangent)
+    sky = lambda freq: sky_stub(freq, lambda n: n @ tangent)
     model = SignalModel(ifg_config(config), orbit, None)
     model.static_sky = sky(model.freq_ghz)
     fixed = SignalModel(ifg_config(config, sky_variation=False), orbit, None)
@@ -188,14 +204,15 @@ def test_fit_noise_per_bin_matches_nominal(config, orbit):
         assert np.abs(factor - 1).max() < 0.01
 
 
-def test_ifg_matches_sample_by_sample_evaluation(config, orbit, table):
+@SKY_STUBS
+def test_ifg_matches_sample_by_sample_evaluation(config, orbit, table, sky_stub):
     """Interpolated sky windows give the IFG of the exact sky at each sample."""
     from fossil_sim.ifg import differential_spectra, interferogram
     from fossil_sim.signal import bbir_spectra_mjy_sr, port_spectra_mjy_sr
 
     cfg = ifg_config(config)
     model = SignalModel(cfg, orbit, None)
-    model.static_sky = ProfileSky(model.freq_ghz, blob(table["boresight"][10]))
+    model.static_sky = sky_stub(model.freq_ghz, blob(table["boresight"][10]))
     fixed = SignalModel(ifg_config(config, sky_variation=False), orbit, None)
     fixed.static_sky = model.static_sky
     row = table[10:11]
@@ -247,3 +264,68 @@ def test_ifg_noise_map_matches_variance_map(config):
     chi = residual / np.sqrt(noisy.sky_variance_map(64)[:, seen])
     assert chi.std() == pytest.approx(1.0, rel=0.02)  # measured 0.998
     assert abs(chi.mean()) < 0.02
+
+
+def test_low_rank_ifgs_equal_per_frequency_ifgs(config, orbit, table, tmp_path):
+    """Static sky through its basis IFGs = through the full spectra on the window.
+
+    Real StaticSky with Doppler, a spatially varying spectral index, a
+    generation grid with cosine band edges, gains and offsets.
+    """
+    from types import SimpleNamespace
+
+    import healpy as hp
+
+    from fossil_sim.input_sky import StaticSky
+    from fossil_sim.instrument import sky_frequency_grid_ghz
+    from fossil_sim.simulation import StaticCircles
+
+    nside = 16
+    cfg = ifg_config(config)
+    cfg = replace(
+        cfg,
+        static_sky=replace(
+            cfg.static_sky, nside=nside, lmax=3 * nside - 1, cache_dir=str(tmp_path)
+        ),
+        instrument=replace(cfg.instrument, band_edge_fraction=0.1),
+        ifg=replace(
+            cfg.ifg, generation_freq_step_ghz=5.0, generation_freq_max_ghz=2200.0
+        ),
+        response=replace(
+            cfg.response,
+            gain=(1.1, 0.9, 1.0, 1.05),
+            gain_rms=0.01,
+            offset_emissivity=(0.01, 0.02, 0.0, 0.01),
+        ),
+    )
+    z = hp.pix2vec(2 * nside, np.arange(hp.nside2npix(2 * nside)))[2]
+
+    def emission(freq_ghz):
+        galactic = (2.0 + z) * (freq_ghz / 100.0) ** (1.0 + 0.3 * z)
+        return galactic, (5.0 + 0.1 * z) * 100.0 / freq_ghz
+
+    sky = StaticSky(cfg.static_sky, sky_frequency_grid_ghz(cfg), 1.6, emission)
+    model = SignalModel(cfg, orbit, sky)
+    circles = model.static_circles(0)
+    assert isinstance(circles, StaticCircles) and len(circles.sizes) == 3
+    reference = SignalModel(
+        cfg,
+        orbit,
+        SimpleNamespace(sample=sky.sample, sample_doppler=sky.sample_doppler),
+    )
+    expected = reference.compute(table, circles=reference.static_circles(0))[0]
+    result = model.compute(table, circles=circles)[0]
+    # rank_epsilon = 0: per-frequency synthesis, sky windows on the full grid
+    exact_cfg = replace(cfg, static_sky=replace(cfg.static_sky, rank_epsilon=0.0))
+    exact_sky = StaticSky(
+        exact_cfg.static_sky, sky_frequency_grid_ghz(cfg), 1.6, emission
+    )
+    exact = SignalModel(exact_cfg, orbit, exact_sky)
+    exact_circles = exact.static_circles(0)
+    assert not isinstance(exact_circles, StaticCircles)
+    without_factorization = exact.compute(table, circles=exact_circles)[0]
+    for name, spectra in expected.items():
+        scale = np.abs(spectra).max()
+        assert np.abs(result[name] - spectra).max() < 1e-10 * scale
+        # the factorization error (1e-9 of each frequency map) stays far below
+        assert np.abs(result[name] - without_factorization[name]).max() < 1e-7 * scale
