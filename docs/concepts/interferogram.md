@@ -181,9 +181,46 @@ litebird_sim.
 
 A symmetric scan rejects any part of the signal odd in time about the IFG
 centre: a sky changing linearly during the IFG gives the same spectrum as the
-sky at the centre. The even part does not cancel, and it enters mostly through
-the unmodulated term: $\sum_k w_k (I_1 + I_2)\,\Delta\nu$, the sky integrated
+sky at the centre. The even part does not cancel, and it enters through both
+terms of the interferogram.
+
+**Unmodulated term.** $\sum_k w_k (I_1 + I_2)\,\Delta\nu$, the sky integrated
 over the whole band, varies during the IFG and leaks into the cosine
-amplitudes of every bin. A beam-size source crossed at the IFG centre changes
-the recovered spectrum by a few per cent of its amplitude, and the effect is
-largest on the bins where the source is faint compared with the band total.
+amplitudes of every bin. In the spectrum of one DU this is the larger part (in
+the Galactic plane, about 0.1 MJy/sr in every HF bin of the baseline). A
+beam-size source crossed at the IFG centre changes the recovered spectrum of a
+DU by a few per cent of its amplitude, most on the bins where the source is
+faint compared with the band total. The leakage has the same sign in the L
+and R outputs, while the sky estimate multiplies the spectrum by $s$, so it
+cancels in the mean of the two outputs and does not reach the maps.
+
+**Modulated term.** A sky changing during the scan changes the amplitude of
+the fringes along the OPD; in frequency this is a convolution of the
+spectrum with a narrow kernel. Inside a band where the spectrum is smooth it
+moves little power, but a sharp band edge is a step in the measured spectrum,
+which the convolution smears asymmetrically onto the bins next to it. This
+part survives in the sky estimate. It is largest at the top of the HF band,
+where the band ends on the bright dust spectrum. In the Galactic plane, for
+the baseline with top-hat bands, it grows by about 4 times per bin towards
+the 2000 GHz edge: 0.0014 MJy/sr at 1500 GHz, 0.015 at 1950 GHz, 0.31 at
+1995 GHz. In the full-mission maps with photon noise (nside 64) it reaches
+650σ per pixel in the 1995 GHz bin. It is not numerical: generating each
+sample from the exact sky in its direction gives the same values as the
+interpolated windows.
+
+Smooth band edges remove most of it. On the 3 GHz generation grid, the same
+IFGs give 0.20 MJy/sr at 1995 GHz with top-hat bands and 0.0003 MJy/sr with
+cosine edges (`band_edge_fraction = 0.1`); with cosine edges only about
+0.005 MJy/sr remains, spread over the transition (1900–2100 GHz), and the
+bins inside the band improve 10–60 times. The full-mission maps confirm it
+(baseline with photon noise, nside 64, rms over the sky of the difference
+with and without sky change, in units of the noise per pixel): with cosine
+edges the HF bins away from the edges go from 3σ to 0.05–0.1σ and the
+1995 GHz bin from 650σ to 1.3σ, while the bins inside the transitions keep
+a smaller effect (up to 8σ at 1905–1950 GHz, 1.9σ at 195 GHz, dominated by
+the Galactic plane); the noise is unchanged. Studies of the sky change during
+the IFG therefore need the generation grid with realistic band edges; the
+baseline (top-hat on the instrument grid) is the worst case. For the
+instrument, the shape of the filter at the top of the band matters: a sharp
+cut-off turns the Galactic sky change during the IFG into a systematic error
+in the highest channels.
