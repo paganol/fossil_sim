@@ -41,6 +41,14 @@ Changes on `main` that are not in a release yet.
   `optics_emissivity`, `optics_temperature_k`; the configuration hash
   changes for every configuration.
 
+- The baseline uses the photon noise from the optical loading
+  (`nep_model = "photon"`, Coulon et al. reference values: η = 0.5,
+  AΩ = 3 cm² sr, optics 1 % at 4.5 K, `modulation_efficiency = 0.5`) instead
+  of the fixed NEPs of the M8 proposal, whose HF value (1.3e-14 W/√Hz) is not
+  a photon NEP. Bands and mission are unchanged (30–200–2000 GHz, 3.5 yr).
+  **Output change:** the baseline noise changes (per IFG and DU, LF 1.1e4 →
+  7.6e3 Jy/sr, HF 3.0e5 → 1.2e4 Jy/sr).
+
 ## 0.1.9 (2026-11-25)
 
 - Add a response for each DU, d = g (s (I₁ − I₂) + o) + n: gain per DU with a
