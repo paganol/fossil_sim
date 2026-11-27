@@ -79,6 +79,14 @@ physics and the mission design.
   sidelobes, noise per bin falling monotonically with β (β = 6: 29.2 GHz,
   0.65 %). The window and β reach the solver of every DU and the variance
   maps.
+- Noise covariance between bins: symmetric, its diagonal equal to the
+  variance maps (spectral domain, IFG domain, apodized with 1/f noise), zero
+  between LF and HF bins and divided by ĝ_k ĝ_l; the full covariance of an
+  apodized fit with 1/f noise equal to a Monte Carlo of 40000 IFGs (every
+  correlation within 0.03); neighbouring bins correlated by 0.57 with
+  Norton–Beer medium. End to end (IFG domain, one short cycle): the map
+  residuals whitened with the covariance of each pixel have unit variance
+  to 3 % and neighbouring-bin correlation below 0.03.
 - Gain drift: reproducible and keyed by cycle and DU, white rms to 2 %, power
   spectrum within 10 % of the model for α = 1 and 2; it multiplies the signal
   and offset of each DU but not the noise, in the spectral and IFG domains

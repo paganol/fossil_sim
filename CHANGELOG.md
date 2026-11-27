@@ -8,6 +8,15 @@ tagged releases.
 
 Changes on `main` that are not in a release yet.
 
+- Noise covariance between frequency bins of the sky map:
+  `sky_estimate_noise_covariance` gives the covariance per IFG (diagonal in
+  the spectral domain; in the IFG domain propagated through the fit, with
+  apodization and 1/f noise), the variance maps being its diagonal. A pixel
+  seen N times has C / N: `SpectralMaps.sky_covariance` and
+  `sky_correlation`, and `sky_noise_covariance.h5` among the outputs
+  (covariance per IFG, frequencies, hits per nside). `SpectralMaps` takes
+  `noise_covariance_per_ifg`; `noise_variance_per_ifg` still works alone.
+
 - Optional apodization of the IFG samples before the spectrum fit
   (`ifg.simulate = true`): Norton–Beer weak, medium, strong, Hann,
   triangular (sinc² line shape, FWHM 1.772 c / (2 x_max)) or Kaiser (β in

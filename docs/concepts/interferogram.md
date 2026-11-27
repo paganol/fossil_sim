@@ -108,7 +108,8 @@ against strong).
 
 The noise per bin falls only because the bins become correlated: at equal
 resolution apodization costs sensitivity. The variance maps carry the
-diagonal of the covariance only. $A(0) = 1$ keeps the level of a smooth
+diagonal; the full covariance between bins is in the outputs too
+({doc}`noise`). $A(0) = 1$ keeps the level of a smooth
 spectrum (within $10^{-3}$ away from the edges), but the line shape of the
 last bins of each DU reaches past the fitted band: for a flat spectrum the
 outermost bin is recovered 15–25 % low, and the nominal calibration does
@@ -507,6 +508,10 @@ $$
 \qquad
 \mathrm{Var}[m_p(\nu_b)] = \frac{\sigma_{\hat S}^2(\nu_b)}{N_p}.
 $$
+
+The same sum with $R_{bj}R_{b'j}$ and $\hat g_b \hat g_{b'}$ gives the
+covariance between bins, $\mathrm{Cov}[m_p(\nu_b), m_p(\nu_{b'})]$
+({func}`fossil_sim.noise.sky_estimate_noise_covariance`).
 
 The raw maps average the uncalibrated $d$ per output (L, R) and Mode (B10,
 B01), a diagnostic product with opposite sky sign in the two Modes.

@@ -274,23 +274,26 @@ def du_noise_mjy_sr(
     return noise * (noise_sigma_mjy_sr(config, du) * scale)[:, None]
 
 
-def one_over_f_variance_factor(
+def fit_noise_covariance(
     config: Config, du: DetectorUnit, solver: np.ndarray
 ) -> np.ndarray:
-    """Variance of each fitted bin with the 1/f noise, relative to white noise.
+    """Noise covariance of the fitted bins of one DU per IFG, (n_band, n_band).
 
-    For stationary sample noise of PSD σ² S(f) the fit row L_k has variance
-    σ² ∫ S(f) |L̂_k(f)|² df; by Parseval this is σ² Σ_n L_kn² for S = 1, so the
-    factor is the S-weighted mean of |L̂_k|² over the frequencies (rows zero
-    padded). The fitted constant makes L̂_k vanish at f = 0, so the noise below
-    the IFG rate barely reaches the spectrum: only bins whose electrical
-    frequency ν v_OPD / c is near f_knee are raised. Correlations between IFGs
-    (from 1/f below the IFG rate) are neglected; they are below 1 % for
-    f_knee up to 2 Hz (Monte Carlo, ``test/test_noise.py``). Ones without 1/f.
+    For stationary sample noise of PSD σ² S(f), σ = :func:`sample_noise_sigma`,
+    the fit L = ``solver`` gives C_kl = σ² ∫ S(f) L̂_k(f) L̂_l*(f) df, computed
+    with the rows zero padded (L̂ their DFT): σ² L Lᵀ for white noise (S = 1,
+    Parseval). The fitted constant makes L̂_k vanish at f = 0, so the noise
+    below the IFG rate barely reaches the spectrum: with 1/f noise only bins
+    whose electrical frequency ν v_OPD / c is near f_knee are raised.
+    Correlations between IFGs (from 1/f below the IFG rate) are neglected;
+    they are below 1 % for f_knee up to 2 Hz (Monte Carlo,
+    ``test/test_noise.py``). Bins are correlated by the fit itself (the
+    constant, the OPD sampling near Nyquist) and above all by apodization.
     """
+    sigma2 = sample_noise_sigma(config, du) ** 2
     fknee_hz = du_fknee_hz(config, du)
     if fknee_hz == 0:
-        return np.ones(solver.shape[0])
+        return sigma2 * solver @ solver.T
     nc = config.noise
     size = solver.shape[1] * ONE_OVER_F_PADDING
     rate_hz = config.ifg.samples_per_ifg / config.timeline.ifg_duration_s
@@ -298,8 +301,22 @@ def one_over_f_variance_factor(
     psd = ((freq_hz**2 + fknee_hz**2) / (freq_hz**2 + nc.one_over_f_fmin_hz**2)) ** (
         nc.one_over_f_alpha / 2
     )
-    power = np.abs(np.fft.fft(solver, n=size, axis=1)) ** 2
-    return (power @ psd) / size / np.sum(solver**2, axis=1)
+    transform = np.fft.fft(solver, n=size, axis=1)
+    return sigma2 * ((transform * psd) @ transform.conj().T).real / size
+
+
+def one_over_f_variance_factor(
+    config: Config, du: DetectorUnit, solver: np.ndarray
+) -> np.ndarray:
+    """Variance of each fitted bin with the 1/f noise, relative to white noise.
+
+    The diagonal of :func:`fit_noise_covariance` over σ² Σ_n L_kn², its value
+    for white noise. Ones without 1/f.
+    """
+    if du_fknee_hz(config, du) == 0:
+        return np.ones(solver.shape[0])
+    white = sample_noise_sigma(config, du) ** 2 * np.sum(solver**2, axis=1)
+    return np.diag(fit_noise_covariance(config, du, solver)) / white
 
 
 def ifg_solvers(
@@ -321,6 +338,45 @@ def ifg_solvers(
     }
 
 
+def sky_estimate_noise_covariance(
+    config: Config,
+    freq_ghz: np.ndarray,
+    dus: list[DetectorUnit],
+    solvers: dict[str, np.ndarray] | None = None,
+    gain: dict[str, np.ndarray] | None = None,
+) -> np.ndarray:
+    """Noise covariance per IFG of the sky estimate between bins, (n_freq, n_freq).
+
+    The sky estimate of a bin is the mean over the DUs covering it, whose
+    noise is independent: C = Σ_DU C_DU / (n_k n_l), with n_k the DUs of bin
+    k, so bins of different DUs (LF and HF) are uncorrelated. In the spectral
+    domain C_DU is diagonal (:func:`noise_sigma_mjy_sr`); with simulated IFGs
+    it is :func:`fit_noise_covariance`. ``gain`` maps DU names to the
+    calibration gain ĝ on the band bins (:mod:`fossil_sim.response`): the
+    detector noise is outside the gain, so C_DU is divided by ĝ_k ĝ_l.
+    ``solvers`` maps DU names to :func:`fossil_sim.ifg.differential_spectrum_solver`
+    (computed here if not given). Every valid IFG has this covariance (the
+    Recycling IFGs, noisier, are flagged), so a pixel seen ``hits`` times has
+    C / hits. NaN in the rows and columns of bins no DU covers.
+    """
+    covariance = np.zeros((freq_ghz.size, freq_ghz.size))
+    count = np.zeros(freq_ghz.size)
+    if config.ifg.simulate and solvers is None:
+        solvers = ifg_solvers(config, freq_ghz, dus)
+    for du in dus:
+        band = np.flatnonzero(du.band_mask(freq_ghz))
+        if config.ifg.simulate:
+            du_covariance = fit_noise_covariance(config, du, solvers[du.name])
+        else:
+            du_covariance = noise_sigma_mjy_sr(config, du) ** 2 * np.eye(band.size)
+        if gain is not None:
+            du_covariance = du_covariance / np.outer(gain[du.name], gain[du.name])
+        covariance[np.ix_(band, band)] += du_covariance
+        count[band] += 1
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return covariance / np.outer(count, count)
+
+
 def sky_estimate_noise_variance(
     config: Config,
     freq_ghz: np.ndarray,
@@ -328,36 +384,13 @@ def sky_estimate_noise_variance(
     solvers: dict[str, np.ndarray] | None = None,
     gain: dict[str, np.ndarray] | None = None,
 ) -> np.ndarray:
-    """Noise variance per IFG of the sky estimate (mean over the DUs of each bin).
+    """Noise variance per IFG of the sky estimate, per bin.
 
-    ``gain`` maps DU names to the calibration gain ĝ on the band bins
-    (:mod:`fossil_sim.response`): the detector noise is outside the gain, so
-    the calibrated variance is divided by ĝ².
-
-    With simulated IFGs, propagate the sample noise through the actual
-    least-squares fit: diag(C) = σ_sample² sum_j solver[k, j]² for white noise,
-    times :func:`one_over_f_variance_factor` with 1/f noise.
-    ``solvers`` maps DU names to :func:`fossil_sim.ifg.differential_spectrum_solver`
-    (computed here if not given).
+    The diagonal of :func:`sky_estimate_noise_covariance` (same arguments):
+    with simulated IFGs the sample noise propagated through the actual
+    least-squares fit, σ_sample² Σ_j solver[k, j]² for white noise, times
+    :func:`one_over_f_variance_factor` with 1/f noise.
     """
-    variance = np.zeros(freq_ghz.size)
-    count = np.zeros(freq_ghz.size)
-    if config.ifg.simulate and solvers is None:
-        solvers = ifg_solvers(config, freq_ghz, dus)
-    for du in dus:
-        mask = du.band_mask(freq_ghz)
-        if config.ifg.simulate:
-            solver = solvers[du.name]
-            du_variance = (
-                sample_noise_sigma(config, du) ** 2
-                * np.sum(solver**2, axis=1)
-                * one_over_f_variance_factor(config, du, solver)
-            )
-        else:
-            du_variance = noise_sigma_mjy_sr(config, du) ** 2
-        if gain is not None:
-            du_variance = du_variance / gain[du.name] ** 2
-        variance[mask] += du_variance
-        count[mask] += 1
-    with np.errstate(invalid="ignore", divide="ignore"):
-        return variance / count**2
+    return np.diag(
+        sky_estimate_noise_covariance(config, freq_ghz, dus, solvers, gain)
+    ).copy()

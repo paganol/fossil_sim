@@ -35,7 +35,7 @@ from .noise import (
     SampleNoise,
     du_noise_mjy_sr,
     ifg_solvers,
-    sky_estimate_noise_variance,
+    sky_estimate_noise_covariance,
 )
 from .operations import (
     FLAG_NAMES,
@@ -688,7 +688,7 @@ def run_simulation(
         spectral_maps=SpectralMaps(
             config.maps.nsides,
             model.freq_ghz,
-            sky_estimate_noise_variance(
+            noise_covariance_per_ifg=sky_estimate_noise_covariance(
                 config,
                 model.freq_ghz,
                 model.dus,
