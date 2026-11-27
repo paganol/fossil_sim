@@ -161,6 +161,53 @@ for ax in axes:
     ax.set(xscale="log", xlabel="ν [GHz]", ylabel="ΔI [MJy/sr]")
     ax.legend()
 fig.tight_layout()"""),
+    md("""## Detector noise: white and 1/f
+
+With `ifg.simulate = true` the detector noise is drawn on the IFG samples,
+optionally with a 1/f component (`noise.fknee_lf_mhz`, `fknee_hf_mhz`),
+generated as in litebird_sim with `ducc0.misc.OofaNoise`. The mirror
+modulation puts a bin at optical frequency $\\nu$ at the electrical frequency
+$f = \\nu\\,v_\\mathrm{OPD}/c$, so the 1/f noise only reaches the bins whose
+$f$ is near or below $f_\\mathrm{knee}$; the fit removes the constant of each
+IFG, and with it the noise below the IFG rate. Left: power spectrum of the
+sample noise of LF-L (unit white level), with the electrical frequencies of
+the LF band shaded. Right: variance of each fitted bin relative to white
+noise (`one_over_f_variance_factor`), the factor carried by the variance
+maps."""),
+    code("""from dataclasses import replace
+
+import numpy as np
+from scipy.signal import welch
+
+from fossil_sim.noise import SampleNoise, ifg_solvers, one_over_f_variance_factor, sample_noise_sigma
+
+simulated = replace(config, ifg=replace(config.ifg, simulate=True))
+rate_hz = config.ifg.samples_per_ifg / config.timeline.ifg_duration_s
+hz_per_ghz = 1e9 * 2 * opd_m.max() / config.timeline.ifg_duration_s / 299792458.0
+lf = dus["LF-L"]
+solvers = ifg_solvers(simulated, freq_ghz, list(dus.values()))
+n_ifg = 2048
+
+fig, axes = plt.subplots(1, 2, figsize=(12, 4))
+for fknee_mhz, color in ((0.0, "k"), (500.0, "C0"), (2000.0, "C1")):
+    cfg = replace(simulated, noise=replace(simulated.noise, fknee_lf_mhz=fknee_mhz, fknee_hf_mhz=fknee_mhz))
+    samples = SampleNoise(cfg, lf, 0, 0, np.zeros(n_ifg, dtype=bool))[0:n_ifg]
+    f_hz, psd = welch(samples.ravel() / sample_noise_sigma(cfg, lf), fs=rate_hz, nperseg=2**15)
+    label = "white" if fknee_mhz == 0 else f"f_knee = {fknee_mhz / 1e3:g} Hz"
+    axes[0].loglog(f_hz[1:], psd[1:] * rate_hz / 2, color=color, lw=1, label=label)
+    if fknee_mhz > 0:
+        for name in ("LF-L", "HF-L"):
+            band = dus[name].band_mask(freq_ghz)
+            axes[1].plot(freq_ghz[band], one_over_f_variance_factor(cfg, dus[name], solvers[name]),
+                         "o-", ms=3, color=color, label=label if name == "LF-L" else None)
+axes[0].axvspan(lf.band_min_ghz * hz_per_ghz, lf.band_max_ghz * hz_per_ghz, color="gray", alpha=0.2, label="LF band")
+axes[0].axvline(1 / config.timeline.ifg_duration_s, color="gray", ls=":", label="IFG rate")
+axes[0].set(xlabel="electrical frequency [Hz]", ylabel="PSD / white", title="Sample noise, LF-L")
+axes[1].axhline(1, color="k", lw=0.5)
+axes[1].set(xscale="log", xlabel="ν [GHz]", ylabel="Var / white", title="Variance of the fitted bins")
+for ax in axes:
+    ax.legend(fontsize=8)
+fig.tight_layout()"""),
 ]
 
 spectral = [
@@ -171,8 +218,8 @@ relativistic corrections, μ, CIB, extragalactic CO), observed with the exact
 Boost from the solar plus orbital velocity (ADR 0002), and of the Static sky
 (pysm3 foregrounds and CMB anisotropies, with the orbital Doppler term,
 ADR 0003), plus the zodiacal light seen from the spacecraft (zodipy, planck18).
-White noise is added per IFG, bin and DU (PIXIE
-formula, M8 NEPs). The sky estimate assumes perfect calibration. The first run builds the Static-sky cache (about 30 s)."""),
+White noise is added per IFG, bin and DU, at the
+photon-noise level of the optical loading of each DU. The sky estimate assumes perfect calibration. The first run builds the Static-sky cache (about 30 s)."""),
     code("""from dataclasses import replace
 from pathlib import Path
 
@@ -291,7 +338,8 @@ for k, mode in enumerate(("B10", "B01")):
                 unit="MJy/sr", min=-2, max=2)"""),
     md("""## White noise
 
-Noise per IFG and DU, flat in each band (PIXIE formula with the M8 NEPs), the
+Noise per IFG and DU, flat in each band (photon noise of the loading of each
+DU, `noise.nep_model = "photon"`), the
 corresponding mission monopole sensitivity, and the noise per pixel of the
 10-day map (square root of the variance map)."""),
     code("""from fossil_sim.instrument import detector_units
@@ -313,6 +361,40 @@ fig.tight_layout()
 noise_jy_sr = np.full(seen.size, hp.UNSEEN)
 noise_jy_sr[seen] = 1e6 * np.sqrt(maps.sky_variance_map(64)[i150, seen])
 hp.mollview(noise_jy_sr, title=f"Noise per pixel, {f:.0f} GHz, 10 days", unit="Jy/sr")"""),
+    md("""## Gain drift
+
+The gain of each DU can drift in time, $g \\to g\\,[1 + \\gamma(t)]$, one
+$\\gamma$ per IFG and DU, drawn with `ducc0.misc.OofaNoise` at the IFG rate
+(`response.gain_drift_sigma`, `gain_drift_fknee_mhz`, ...). The calibration
+does not follow it, so the sky estimate carries
+$\\gamma(t)\\,[s(I_1 - I_2) + o]$: in the science Modes the sky minus the
+BBIR, dominated by the dipole, scaled by a drift correlated over many Scans.
+Here $\\sigma_\\gamma = 10^{-4}$ per IFG and $f_\\mathrm{knee}$ = 10 mHz, on the
+same 10 days without noise, Static sky and zodiacal light, so the residual
+map is the drift alone."""),
+    code("""from fossil_sim.response import gain_drift
+
+drift_response = replace(config.response, gain_drift_sigma=1e-4, gain_drift_fknee_mhz=10.0)
+gamma = gain_drift(replace(config, response=drift_response), 0, 0, 40000) - 1
+hours = np.arange(gamma.size) * tl.ifg_duration_s / 3600
+fig, ax = plt.subplots(figsize=(9, 3))
+ax.plot(hours, 1e4 * gamma, lw=0.3, color="0.7", label="per IFG")
+scan = tl.ifgs_per_scan
+ax.plot(hours[: gamma.size // scan * scan].reshape(-1, scan).mean(axis=1),
+        1e4 * gamma[: gamma.size // scan * scan].reshape(-1, scan).mean(axis=1), "C1o-", ms=3, label="mean per Scan")
+ax.legend(fontsize=8)
+ax.set(xlabel="hours since cycle start", ylabel="γ [10⁻⁴]", title="Gain drift of LF-L, first Cooler cycle")
+fig.tight_layout()
+
+quiet = replace(config, static_sky=replace(config.static_sky, models=()),
+                zodi=replace(config.zodi, enabled=False), noise=replace(config.noise, enabled=False))
+steady_maps = run_simulation(quiet, num_of_cycles=7).spectral_maps
+drift_maps = run_simulation(replace(quiet, response=drift_response), num_of_cycles=7).spectral_maps
+residual_jy_sr = np.full(seen.size, hp.UNSEEN)
+residual_jy_sr[seen] = 1e6 * (drift_maps.sky_map(64)[i150, seen] - steady_maps.sky_map(64)[i150, seen])
+hp.mollview(residual_jy_sr, title=f"Gain-drift residual, {f:.0f} GHz, 10 days", unit="Jy/sr")
+print(f"rms of the residual: {np.std(residual_jy_sr[seen]):.1f} Jy/sr; "
+      f"median noise per pixel: {np.median(noise_jy_sr[seen]):.0f} Jy/sr")"""),
 ]
 
 for name, cells in (
