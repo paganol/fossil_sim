@@ -25,14 +25,17 @@ computes:
 - the observation timeline: indices, Mode, flags, BBIR temperatures;
 - the pointing: spacecraft orbit, Spin axis, boresight, Solar Aspect Angle;
 - the sky signal entering each Port and the differential spectrum measured by
-  each DU;
-- streaming hit maps and binned spectral maps.
+  each DU, through its response (gain, offset, gain drift);
+- the detector noise: photon noise from the optical loading, white or with a
+  1/f component;
+- the sky estimate from the calibrated spectra, streaming hit maps and binned
+  spectral maps with their variance.
 
-Two simulation levels are planned: the **spectral domain**, where each IFG is
-represented by its spectrum (for mission-length studies), and the
-**IFG domain**, where full interferograms with instrumental systematics are
-produced. The current release works in the spectral domain; an ideal-FTS
-interferogram model is available for illustration
+It works at two levels. In the **spectral domain** each IFG is represented
+by its spectrum, with Gaussian noise per bin, for mission-length studies. In
+the **IFG domain** (`ifg.simulate = true`) the interferogram samples are
+generated, with the sky changing during the IFG and noise on the samples,
+and the spectrum of each DU is recovered by least squares
 ({doc}`concepts/interferogram`).
 
 ## Status
@@ -44,7 +47,14 @@ interferogram model is available for illustration
 | 0.1.2 | Static sky: pysm3 foregrounds as alm, sampled with ducc0, orbital Doppler |
 | 0.1.3 | Zodiacal light (zodipy) seen from the spacecraft, evaluated Ring by Ring |
 | 0.1.4 | Spectral-domain white noise per DU, variance maps |
+| 0.1.5 | Mode switches by observing-time blocks with a repeating pattern, science IFGs selected by Mode; first tagged release |
+| 0.1.6 | Static-sky Doppler slope and spectral white-noise normalization corrected |
+| 0.1.7 | IFG domain: interferograms, sample noise and least-squares spectra; faster spectral domain |
+| 0.1.8 | Configuration and numerical edge cases hardened, end-to-end IFG-domain tests |
+| 0.1.9 | DU response (gain, offset) and calibration solution; IFG generation on a finer, wider grid |
+| `main` (unreleased) | Photon noise from the optical loading (baseline), Static sky through a low-rank factorization, 1/f detector noise, gain drift |
 
+The {doc}`changelog` lists every change.
 Several design ideas come from litebird_sim, which is used only as an optional
 validation oracle, and from bisou_sky for the sky model; fossil_sim depends on
 neither.
