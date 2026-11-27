@@ -52,7 +52,7 @@ and the spectrum of each DU is recovered by least squares
 | 0.1.7 | IFG domain: interferograms, sample noise and least-squares spectra; faster spectral domain |
 | 0.1.8 | Configuration and numerical edge cases hardened, end-to-end IFG-domain tests |
 | 0.1.9 | DU response (gain, offset) and calibration solution; IFG generation on a finer, wider grid |
-| `main` (unreleased) | Photon noise from the optical loading (baseline), Static sky through a low-rank factorization, 1/f detector noise, gain drift |
+| `main` (unreleased) | Photon noise from the optical loading (baseline), Static sky through a low-rank factorization, 1/f detector noise, gain drift, apodization of the IFG-domain spectrum fit |
 
 The {doc}`changelog` lists every change.
 Several design ideas come from litebird_sim, which is used only as an optional
