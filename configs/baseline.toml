@@ -209,4 +209,5 @@ sky_variation = true                      # with simulate: Static sky follows th
 # generation_freq_max_ghz = 3825.0
 apodization = "none"                      # IFG domain: apodization of the samples before the fit,
                                           # "none" | "norton_beer_weak" | "norton_beer_medium" |
-                                          # "norton_beer_strong" | "hann" (docs: Interferogram)
+                                          # "norton_beer_strong" | "hann" | "triangular"
+                                          # (docs: Interferogram)

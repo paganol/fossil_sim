@@ -9,7 +9,8 @@ tagged releases.
 Changes on `main` that are not in a release yet.
 
 - Optional apodization of the IFG samples before the spectrum fit
-  (`ifg.simulate = true`): Norton–Beer weak, medium, strong or Hann, with
+  (`ifg.simulate = true`): Norton–Beer weak, medium, strong, Hann or
+  triangular (sinc² line shape, FWHM 1.772 c / (2 x_max)), with
   A(0) = 1. The constant of the plain fit is removed, then the apodized
   samples are projected on the cosines; the noise variance and the 1/f
   factor follow the new solver. It suppresses the sinc sidelobes (−22 % →

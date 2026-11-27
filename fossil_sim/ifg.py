@@ -366,7 +366,8 @@ def apodization_window(name: str, opd_m: np.ndarray) -> np.ndarray:
     """Apodization A(x) on the OPD samples, A(0) = 1, u = |x| / max|x|.
 
     ``"none"`` (A = 1), the Norton–Beer weak, medium and strong functions,
-    or ``"hann"``, cos²(π u / 2). A(0) = 1 keeps the level of a smooth
+    ``"hann"``, cos²(π u / 2), or ``"triangular"``, 1 − u (line shape sinc²,
+    FWHM 1.772 c / (2 x_max), sidelobes positive). A(0) = 1 keeps the level of a smooth
     spectrum: the instrumental line shape integrates to 1.
     """
     u = np.abs(opd_m) / np.max(np.abs(opd_m))
@@ -374,6 +375,8 @@ def apodization_window(name: str, opd_m: np.ndarray) -> np.ndarray:
         return np.ones_like(u)
     if name == "hann":
         return np.cos(np.pi * u / 2) ** 2
+    if name == "triangular":
+        return 1 - u
     if name in NORTON_BEER_COEFFICIENTS:
         return sum(
             c * (1 - u**2) ** i for i, c in enumerate(NORTON_BEER_COEFFICIENTS[name])

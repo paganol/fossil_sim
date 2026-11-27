@@ -76,8 +76,8 @@ $$
 with $D$ the design matrix of the plain fit. The rows still annihilate a
 constant, so the 1/f factor ({doc}`noise`) applies unchanged. The choices
 are the Norton–Beer weak, medium and strong functions {cite}`norton1976`,
-$A = \sum_i c_i (1 - u^2)^i$, and Hann, $\cos^2(\pi u/2)$, with
-$u = |x|/x_\mathrm{max}$. On the baseline (bin at 1005 GHz):
+$A = \sum_i c_i (1 - u^2)^i$, Hann, $\cos^2(\pi u/2)$, and triangular,
+$1 - u$, with $u = |x|/x_\mathrm{max}$. On the baseline (bin at 1005 GHz):
 
 | `apodization` | FWHM | first sidelobe | σ per bin | ρ(k, k+1) | ρ(k, k+2) |
 |---|---|---|---|---|---|
@@ -86,6 +86,14 @@ $u = |x|/x_\mathrm{max}$. On the baseline (bin at 1005 GHz):
 | `norton_beer_medium` | 25.3 GHz | 1.4 % | 0.66 | 0.57 | 0.08 |
 | `norton_beer_strong` | 28.9 GHz | 0.4 % | 0.61 | 0.67 | 0.18 |
 | `hann` | 29.9 GHz | 2.7 % | 0.61 | 0.67 | 0.17 |
+| `triangular` | 26.4 GHz | +4.7 % | 0.58 | 0.61 | 0.15 |
+
+The triangular line shape is $\mathrm{sinc}^2$, the classical FWHM of
+$1.772\,c/(2x_\mathrm{max})$ (26.6 GHz; 26.4 GHz on the 512 samples): its
+sidelobes are never negative, but the first is higher than with Norton–Beer
+medium at a similar width, and they decay only as $1/\nu^2$. Their area
+beyond the edges of the fitted band is missing, so a flat spectrum comes out
+about 1 % low in mid-band and 5 % low a few bins from the edges.
 
 The noise per bin falls only because the bins become correlated: at equal
 resolution apodization costs sensitivity. The variance maps carry the

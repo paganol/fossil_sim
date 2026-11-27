@@ -28,6 +28,7 @@ APODIZATIONS = (
     "norton_beer_medium",
     "norton_beer_strong",
     "hann",
+    "triangular",
 )
 
 # Largest Spin-axis/anti-Sun offset produced by the "equal_per_cycle" Ring
