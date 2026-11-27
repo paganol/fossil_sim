@@ -67,6 +67,18 @@ physics and the mission design.
   variance maps to 5 % (f_knee = 2 Hz: LF bins up to × 2.2), spectra of
   successive IFGs uncorrelated to 4 %; white realization unchanged with
   f_knee = 0.
+- Apodization (IFG domain): every window has A(0) = 1, its solver rows
+  annihilate a constant and a flat spectrum keeps its level away from the
+  band edges (to 10⁻³; triangular: 1.2 %, its 1/ν² sidelobes reaching
+  past the band), while the edge bins come out low; without apodization the
+  solver is the plain least squares. Norton–Beer medium: sidelobe −22 % →
+  below 2 %, FWHM 1.3 times wider, neighbouring bins correlated (ρ > 0.5),
+  noise per bin lower and equal to the solver propagation (Monte Carlo, 3 %);
+  triangular: sinc² line shape, FWHM 1.772 c / (2 x_max) to 1 %, no
+  negative sidelobe, first sidelobe +4.7 %; Kaiser: FWHM growing and
+  sidelobes, noise per bin falling monotonically with β (β = 6: 29.2 GHz,
+  0.65 %). The window and β reach the solver of every DU and the variance
+  maps.
 - Gain drift: reproducible and keyed by cycle and DU, white rms to 2 %, power
   spectrum within 10 % of the model for α = 1 and 2; it multiplies the signal
   and offset of each DU but not the noise, in the spectral and IFG domains
