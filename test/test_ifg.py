@@ -149,6 +149,7 @@ APODIZED = [
     "norton_beer_strong",
     "hann",
     "triangular",
+    "kaiser",
 ]
 
 
@@ -160,6 +161,9 @@ def test_apodization_windows():
         assert np.all(np.diff(window) <= 1e-12)
     assert apodization_window("hann", u)[-1] == pytest.approx(0.0, abs=1e-15)
     np.testing.assert_allclose(apodization_window("triangular", u), 1 - u)
+    kaiser = apodization_window("kaiser", u, kaiser_beta=9.0)
+    assert kaiser[-1] == pytest.approx(1 / np.i0(9.0))
+    np.testing.assert_allclose(apodization_window("kaiser", u, 1e-4), 1, atol=1e-8)
     assert apodization_window("norton_beer_weak", u)[-1] == pytest.approx(0.384093)
     assert np.all(apodization_window("none", u) == 1)
     with pytest.raises(ValueError, match="unknown apodization"):
@@ -255,3 +259,29 @@ def test_triangular_line_shape_is_sinc_squared(config):
     # first sidelobe of sinc², beyond the first zero at 2 c / (2 x_max)
     sidelobe = shape[np.abs(nu_ghz - 1005.0) > 2 * step_ghz + 0.5].max()
     assert sidelobe == pytest.approx(0.047, abs=0.002)
+
+
+def test_kaiser_beta_trades_resolution_for_sidelobes(config):
+    """Larger β: wider line shape, lower sidelobes, smaller and more correlated noise."""
+    freq_ghz = frequency_grid_ghz(config.instrument)
+    opd_m = opd_samples_m(config.ifg)
+    du = detector_units(config.instrument)[1]
+    k = int(np.flatnonzero(freq_ghz[du.band_mask(freq_ghz)] == 1005.0)[0])
+    nu_ghz = 1005.0 + np.linspace(-150, 150, 3001)
+    lines = modulation_matrix(nu_ghz, opd_m)
+    result = []
+    for beta in (2.0, 6.0, 10.0):
+        solver = differential_spectrum_solver(
+            freq_ghz, du, opd_m, apodization="kaiser", kaiser_beta=beta
+        )
+        shape = solver[k] @ lines
+        shape /= shape.max()
+        cov = solver @ solver.T
+        rho = cov[k, k + 1] / np.sqrt(cov[k, k] * cov[k + 1, k + 1])
+        result.append((np.ptp(nu_ghz[shape >= 0.5]), -shape.min(), cov[k, k], rho))
+    fwhm, sidelobe, variance, rho = np.array(result).T
+    assert np.all(np.diff(fwhm) > 0) and np.all(np.diff(sidelobe) < 0)
+    assert np.all(np.diff(variance) < 0) and np.all(np.diff(rho) > 0)
+    # β = 6: close to Norton–Beer strong (29 GHz, 0.4 %)
+    assert fwhm[1] == pytest.approx(29.2, abs=0.3)
+    assert sidelobe[1] == pytest.approx(0.0065, abs=0.001)

@@ -118,3 +118,9 @@ def test_ifg_apodization_is_validated():
         config_from_dict(values)  # spectral domain: ignored
     values["ifg"]["simulate"] = True
     assert config_from_dict(values).ifg.apodization == "hann"
+    values["ifg"].update(apodization="kaiser", kaiser_beta=8.0)
+    assert config_from_dict(values).ifg.kaiser_beta == 8.0
+    for beta in (0.0, -1.0, 60.0):
+        values["ifg"]["kaiser_beta"] = beta
+        with pytest.raises(ValueError, match="kaiser_beta"):
+            config_from_dict(values)

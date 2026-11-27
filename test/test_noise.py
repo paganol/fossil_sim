@@ -398,3 +398,23 @@ def test_apodization_reaches_solvers_and_variance(config):
     # narrower noise per bin (bins correlated), about (0.66)² inside the bands
     ratio = smoothed / plain
     assert np.all(ratio < 1) and np.median(ratio) == pytest.approx(0.44, abs=0.05)
+
+
+def test_kaiser_beta_reaches_solvers(config):
+    cfg = replace(config, ifg=replace(config.ifg, simulate=True, apodization="kaiser"))
+    freq_ghz = frequency_grid_ghz(cfg.instrument)
+    du = detector_units(cfg.instrument)[0]
+    for beta in (3.0, 9.0):
+        solver = ifg_solvers(
+            replace(cfg, ifg=replace(cfg.ifg, kaiser_beta=beta)), freq_ghz, [du]
+        )[du.name]
+        expected = differential_spectrum_solver(
+            freq_ghz,
+            du,
+            opd_samples_m(cfg.ifg),
+            cfg.noise.modulation_efficiency,
+            freq_step_ghz=cfg.instrument.freq_step_ghz,
+            apodization="kaiser",
+            kaiser_beta=beta,
+        )
+        np.testing.assert_array_equal(solver, expected)
