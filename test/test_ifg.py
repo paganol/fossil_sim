@@ -3,9 +3,12 @@ import pytest
 
 from fossil_sim.ifg import (
     _interpolated_modulation,
+    apodization_window,
     differential_spectrum,
+    differential_spectrum_solver,
     interferogram,
     mirror_positions_m,
+    modulation_matrix,
     opd_samples_m,
     sample_weights,
 )
@@ -138,3 +141,147 @@ def test_interpolated_modulation_equals_the_direct_product(zeros):
     flags[::6] = True
     given = _interpolated_modulation(difference, modulation, weights, flags)
     np.testing.assert_allclose(given, direct, rtol=1e-12, atol=1e-12)
+
+
+APODIZED = [
+    "norton_beer_weak",
+    "norton_beer_medium",
+    "norton_beer_strong",
+    "hann",
+    "triangular",
+    "kaiser",
+]
+
+
+def test_apodization_windows():
+    u = np.linspace(0.0, 1.0, 11)
+    for name in APODIZED:
+        window = apodization_window(name, u)
+        assert window[0] == pytest.approx(1.0, abs=1e-6)
+        assert np.all(np.diff(window) <= 1e-12)
+    assert apodization_window("hann", u)[-1] == pytest.approx(0.0, abs=1e-15)
+    np.testing.assert_allclose(apodization_window("triangular", u), 1 - u)
+    kaiser = apodization_window("kaiser", u, kaiser_beta=9.0)
+    assert kaiser[-1] == pytest.approx(1 / np.i0(9.0))
+    np.testing.assert_allclose(apodization_window("kaiser", u, 1e-4), 1, atol=1e-8)
+    assert apodization_window("norton_beer_weak", u)[-1] == pytest.approx(0.384093)
+    assert np.all(apodization_window("none", u) == 1)
+    with pytest.raises(ValueError, match="unknown apodization"):
+        apodization_window("boxcar", u)
+
+
+@pytest.mark.parametrize("name", APODIZED)
+def test_apodized_fit_keeps_smooth_level_and_rejects_constant(config, name):
+    freq_ghz = frequency_grid_ghz(config.instrument)
+    opd_m = opd_samples_m(config.ifg)
+    du = detector_units(config.instrument)[1]
+    solver = differential_spectrum_solver(freq_ghz, du, opd_m, apodization=name)
+    # the rows still annihilate a constant (unmodulated term)
+    assert np.abs(solver @ np.ones(opd_m.size)).max() < 1e-12
+    flat = np.full(freq_ghz.size, 5.0)
+    ifg = interferogram(freq_ghz, flat, np.zeros(freq_ghz.size), du, opd_m)
+    recovered = differential_spectrum(freq_ghz, ifg, du, opd_m, apodization=name)
+    band = recovered[du.band_mask(freq_ghz)]
+    # A(0) = 1: a smooth spectrum keeps its level away from the band edges ...
+    # (the triangular sinc² decays as 1/ν² with positive sidelobes only: the
+    # line-shape area beyond the band edges is missing, about 1 % in mid-band)
+    tolerance = 1.2e-2 if name == "triangular" else 1e-3
+    assert np.abs(band[10:-10] / 5 - 1).max() < tolerance
+    # ... while the line shape of the edge bins reaches beyond the fitted band
+    assert band[-1] < 0.9 * 5
+
+
+def test_no_apodization_is_the_plain_least_squares(config):
+    freq_ghz = frequency_grid_ghz(config.instrument)
+    opd_m = opd_samples_m(config.ifg)
+    du = detector_units(config.instrument)[0]
+    design = np.column_stack(
+        [
+            np.ones(opd_m.size),
+            modulation_matrix(freq_ghz[du.band_mask(freq_ghz)], opd_m),
+        ]
+    )
+    solver = differential_spectrum_solver(freq_ghz, du, opd_m, 0.5, apodization="none")
+    np.testing.assert_array_equal(solver, np.linalg.pinv(design)[1:] / (15.0 * 0.5))
+
+
+def test_apodization_trades_resolution_for_sidelobes_and_correlation(config):
+    freq_ghz = frequency_grid_ghz(config.instrument)
+    opd_m = opd_samples_m(config.ifg)
+    du = detector_units(config.instrument)[1]
+    k = int(np.flatnonzero(freq_ghz[du.band_mask(freq_ghz)] == 1005.0)[0])
+    # line shape of bin k: response to a line scanned across ±150 GHz
+    nu_ghz = 1005.0 + np.linspace(-150, 150, 3001)
+    lines = modulation_matrix(nu_ghz, opd_m)
+    result = {}
+    for name in ("none", "norton_beer_medium"):
+        solver = differential_spectrum_solver(freq_ghz, du, opd_m, apodization=name)
+        shape = solver[k] @ lines
+        shape /= shape.max()
+        cov = solver @ solver.T
+        rho = cov[k, k + 1] / np.sqrt(cov[k, k] * cov[k + 1, k + 1])
+        fwhm = np.ptp(nu_ghz[shape >= 0.5])
+        result[name] = (-shape.min(), fwhm, cov[k, k], rho)
+    (side0, fwhm0, var0, rho0), (side1, fwhm1, var1, rho1) = result.values()
+    assert side0 > 0.2 and side1 < 0.02  # first (negative) sidelobe
+    assert fwhm0 == pytest.approx(18.1, abs=0.3) and fwhm1 > 1.3 * fwhm0
+    assert abs(rho0) < 0.01 and rho1 > 0.5  # neighbouring bins correlated
+    assert var1 < var0
+
+
+def test_apodized_noise_matches_solver_propagation(config):
+    freq_ghz = frequency_grid_ghz(config.instrument)
+    opd_m = opd_samples_m(config.ifg)
+    du = detector_units(config.instrument)[1]
+    solver = differential_spectrum_solver(
+        freq_ghz, du, opd_m, apodization="norton_beer_medium"
+    )
+    samples = np.random.default_rng(1).standard_normal((20000, opd_m.size))
+    spectra = samples @ solver.T
+    expected = np.sqrt((solver**2).sum(axis=1))
+    np.testing.assert_allclose(spectra.std(axis=0), expected, rtol=0.03)
+
+
+def test_triangular_line_shape_is_sinc_squared(config):
+    """FWHM 1.772 c / (2 x_max) (26.6 GHz at baseline), sidelobes never negative."""
+    freq_ghz = frequency_grid_ghz(config.instrument)
+    opd_m = opd_samples_m(config.ifg)
+    du = detector_units(config.instrument)[1]
+    k = int(np.flatnonzero(freq_ghz[du.band_mask(freq_ghz)] == 1005.0)[0])
+    nu_ghz = 1005.0 + np.linspace(-150, 150, 3001)
+    solver = differential_spectrum_solver(freq_ghz, du, opd_m, apodization="triangular")
+    shape = solver[k] @ modulation_matrix(nu_ghz, opd_m)
+    shape /= shape.max()
+    step_ghz = 299792458.0 / (2 * opd_m.max()) / 1e9
+    # discrete samples: within one percent of the continuous 1.772
+    assert np.ptp(nu_ghz[shape >= 0.5]) == pytest.approx(1.772 * step_ghz, rel=0.01)
+    assert shape.min() > -1e-3
+    # first sidelobe of sinc², beyond the first zero at 2 c / (2 x_max)
+    sidelobe = shape[np.abs(nu_ghz - 1005.0) > 2 * step_ghz + 0.5].max()
+    assert sidelobe == pytest.approx(0.047, abs=0.002)
+
+
+def test_kaiser_beta_trades_resolution_for_sidelobes(config):
+    """Larger β: wider line shape, lower sidelobes, smaller and more correlated noise."""
+    freq_ghz = frequency_grid_ghz(config.instrument)
+    opd_m = opd_samples_m(config.ifg)
+    du = detector_units(config.instrument)[1]
+    k = int(np.flatnonzero(freq_ghz[du.band_mask(freq_ghz)] == 1005.0)[0])
+    nu_ghz = 1005.0 + np.linspace(-150, 150, 3001)
+    lines = modulation_matrix(nu_ghz, opd_m)
+    result = []
+    for beta in (2.0, 6.0, 10.0):
+        solver = differential_spectrum_solver(
+            freq_ghz, du, opd_m, apodization="kaiser", kaiser_beta=beta
+        )
+        shape = solver[k] @ lines
+        shape /= shape.max()
+        cov = solver @ solver.T
+        rho = cov[k, k + 1] / np.sqrt(cov[k, k] * cov[k + 1, k + 1])
+        result.append((np.ptp(nu_ghz[shape >= 0.5]), -shape.min(), cov[k, k], rho))
+    fwhm, sidelobe, variance, rho = np.array(result).T
+    assert np.all(np.diff(fwhm) > 0) and np.all(np.diff(sidelobe) < 0)
+    assert np.all(np.diff(variance) < 0) and np.all(np.diff(rho) > 0)
+    # β = 6: close to Norton–Beer strong (29 GHz, 0.4 %)
+    assert fwhm[1] == pytest.approx(29.2, abs=0.3)
+    assert sidelobe[1] == pytest.approx(0.0065, abs=0.001)

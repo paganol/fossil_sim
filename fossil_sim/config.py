@@ -21,6 +21,16 @@ from .version import __version__
 
 MODES = ("B00", "B01", "B10", "B11")
 RING_STEPPING_RULES = ("equal_per_cycle", "anchor_ring_start", "fixed")
+# apodization of the IFG samples before the spectrum fit (fossil_sim.ifg)
+APODIZATIONS = (
+    "none",
+    "norton_beer_weak",
+    "norton_beer_medium",
+    "norton_beer_strong",
+    "hann",
+    "triangular",
+    "kaiser",
+)
 
 # Largest Spin-axis/anti-Sun offset produced by the "equal_per_cycle" Ring
 # stepping (half a cycle of solar motion, ~1.44 deg / 2), plus margin
@@ -213,6 +223,10 @@ class IFGConfig:
     # frequency grid the IFGs are generated on (None: the instrument grid)
     generation_freq_step_ghz: float | None = None
     generation_freq_max_ghz: float | None = None
+    # apodization of the samples before the spectrum fit, one of APODIZATIONS
+    apodization: str = "none"
+    # β of the Kaiser window (apodization = "kaiser" only)
+    kaiser_beta: float = 6.0
 
 
 @dataclass(frozen=True)
@@ -388,6 +402,16 @@ def validate(config: Config) -> None:
             "ifg.samples_per_ifg too few to sample instrument.freq_max_ghz"
         )
     _validate_generation_grid(config, opd_step_m)
+    if config.ifg.apodization not in APODIZATIONS:
+        raise ValueError(f"ifg.apodization must be one of {APODIZATIONS}")
+    if not 0 < config.ifg.kaiser_beta <= 50:
+        raise ValueError("ifg.kaiser_beta must be in (0, 50]")
+    if not config.ifg.simulate and config.ifg.apodization != "none":
+        warnings.warn(
+            "ifg.apodization acts only in the IFG domain (ifg.simulate = true): "
+            "ignored in the spectral domain",
+            stacklevel=2,
+        )
     st = config.static_sky
     for model in st.models:
         if model.startswith(FORBIDDEN_STATIC_MODELS):

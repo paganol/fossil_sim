@@ -354,6 +354,46 @@ def _interpolated_modulation(
     return out
 
 
+# Norton & Beer (1976) apodizations, A(u) = Σ_i c_i (1 − u²)^i with Σ c_i = 1
+NORTON_BEER_COEFFICIENTS = {
+    "norton_beer_weak": (0.384093, -0.087577, 0.703484),
+    "norton_beer_medium": (0.152442, -0.136176, 0.983734),
+    "norton_beer_strong": (0.045335, 0.0, 0.554883, 0.0, 0.399782),
+}
+
+
+# Kaiser β when not given (FWHM ≈ 1.96 c / (2 x_max), sidelobes 0.65 %)
+DEFAULT_KAISER_BETA = 6.0
+
+
+def apodization_window(
+    name: str, opd_m: np.ndarray, kaiser_beta: float = DEFAULT_KAISER_BETA
+) -> np.ndarray:
+    """Apodization A(x) on the OPD samples, A(0) = 1, u = |x| / max|x|.
+
+    ``"none"`` (A = 1), the Norton–Beer weak, medium and strong functions,
+    ``"hann"``, cos²(π u / 2), ``"triangular"``, 1 − u (line shape sinc²,
+    FWHM 1.772 c / (2 x_max), sidelobes positive), or ``"kaiser"``,
+    I₀(β √(1 − u²)) / I₀(β): β = 0 is no apodization, a larger β a wider
+    line shape with lower sidelobes. A(0) = 1 keeps the level of a smooth
+    spectrum: the instrumental line shape integrates to 1.
+    """
+    u = np.abs(opd_m) / np.max(np.abs(opd_m))
+    if name == "none":
+        return np.ones_like(u)
+    if name == "hann":
+        return np.cos(np.pi * u / 2) ** 2
+    if name == "triangular":
+        return 1 - u
+    if name == "kaiser":
+        return np.i0(kaiser_beta * np.sqrt(1 - u**2)) / np.i0(kaiser_beta)
+    if name in NORTON_BEER_COEFFICIENTS:
+        return sum(
+            c * (1 - u**2) ** i for i, c in enumerate(NORTON_BEER_COEFFICIENTS[name])
+        )
+    raise ValueError(f"unknown apodization {name!r}")
+
+
 def differential_spectrum_solver(
     freq_ghz: np.ndarray,
     du: DetectorUnit,
@@ -361,19 +401,34 @@ def differential_spectrum_solver(
     modulation_efficiency: float = 1.0,
     *,
     freq_step_ghz: float | None = None,
+    apodization: str = "none",
+    kaiser_beta: float = DEFAULT_KAISER_BETA,
 ) -> np.ndarray:
     """Linear map from IFG samples to the DU band spectra, (n_band, n_samples).
 
     ``ifgs @ solver.T`` is :func:`differential_spectra`; the same matrix
     propagates sample noise (:func:`fossil_sim.noise.sky_estimate_noise_variance`).
     It depends only on the configuration: compute it once per DU and reuse it.
+
+    Without apodization, the least squares on a constant plus the cosines of
+    the band bins, D⁺. With apodization A (:func:`apodization_window`), the
+    constant a₀ of that fit is removed first, then the apodized samples are
+    projected on the cosines: D⁺[1:] diag(A) (1 − 𝟙 D⁺[0]). Each bin is then
+    the spectrum seen through the line shape of A (wider, lower sidelobes)
+    and neighbouring bins are correlated; the rows still annihilate a
+    constant.
     """
     mask = du.band_mask(freq_ghz)
     freq_step_ghz = _frequency_step_ghz(freq_ghz, freq_step_ghz)
     design = np.column_stack(
         [np.ones_like(opd_m), modulation_matrix(freq_ghz[mask], opd_m)]
     )
-    return np.linalg.pinv(design)[1:] / (freq_step_ghz * modulation_efficiency)
+    pinv = np.linalg.pinv(design)
+    fit = pinv[1:]
+    if apodization != "none":
+        window = apodization_window(apodization, opd_m, kaiser_beta)
+        fit = fit * window - np.outer(fit @ window, pinv[0])
+    return fit / (freq_step_ghz * modulation_efficiency)
 
 
 def differential_spectra(
@@ -384,15 +439,25 @@ def differential_spectra(
     modulation_efficiency: float = 1.0,
     *,
     freq_step_ghz: float | None = None,
+    apodization: str = "none",
+    kaiser_beta: float = DEFAULT_KAISER_BETA,
 ) -> np.ndarray:
     """Recover s (I₁ − I₂) on the DU band bins from interferograms (n_ifg, n_samples).
 
-    Least squares on a constant plus the cosines of the band bins (no
-    apodization), shape (n_ifg, n_band). ``freq_step_ghz`` defaults to the grid
-    spacing; supply it for a single bin.
+    Least squares on a constant plus the cosines of the band bins, with
+    optional ``apodization`` (:func:`differential_spectrum_solver`; β of
+    ``"kaiser"`` in ``kaiser_beta``), shape
+    (n_ifg, n_band). ``freq_step_ghz`` defaults to the grid spacing; supply
+    it for a single bin.
     """
     solver = differential_spectrum_solver(
-        freq_ghz, du, opd_m, modulation_efficiency, freq_step_ghz=freq_step_ghz
+        freq_ghz,
+        du,
+        opd_m,
+        modulation_efficiency,
+        freq_step_ghz=freq_step_ghz,
+        apodization=apodization,
+        kaiser_beta=kaiser_beta,
     )
     return ifgs @ solver.T
 
@@ -410,11 +475,14 @@ def differential_spectrum(
     modulation_efficiency: float = 1.0,
     *,
     freq_step_ghz: float | None = None,
+    apodization: str = "none",
+    kaiser_beta: float = DEFAULT_KAISER_BETA,
 ) -> np.ndarray:
     """Recover s (I₁ − I₂) in the DU band from an interferogram, by least squares.
 
     Bins outside the band are returned as NaN.
     ``freq_step_ghz`` defaults to the grid spacing; supply it for a single bin.
+    ``apodization`` and ``kaiser_beta`` as in :func:`apodization_window`.
     """
     result = np.full(freq_ghz.size, np.nan)
     result[du.band_mask(freq_ghz)] = differential_spectra(
@@ -424,5 +492,7 @@ def differential_spectrum(
         opd_m,
         modulation_efficiency,
         freq_step_ghz=freq_step_ghz,
+        apodization=apodization,
+        kaiser_beta=kaiser_beta,
     )[0]
     return result

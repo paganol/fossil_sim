@@ -10,3 +10,4 @@ output/
 docs/_build/
 docs/tutorials/notebooks/
 cache/
+.DS_Store

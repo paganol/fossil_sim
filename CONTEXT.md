@@ -78,6 +78,10 @@ _Avoid_: detector, channel
 The response of a DU relative to the nominal one, per frequency bin; dimensionless, 1 = nominal.
 _Avoid_: responsivity (detector-level, W/V), calibration factor
 
+**Gain drift**:
+The change of the gain in time, g → g (1 + γ(t)): one γ per IFG and DU, the same in every bin; not followed by the Calibration solution.
+_Avoid_: gain fluctuation (the per-bin, time-constant part of the gain)
+
 **Offset**:
 A spectrum added to the differential spectrum of a DU before the gain, referred to the sky (MJy/sr); here the emission imbalance between the arms.
 _Avoid_: baseline, bias
@@ -85,6 +89,10 @@ _Avoid_: baseline, bias
 **Calibration solution**:
 The gain and offset assumed when reconstructing the sky, (ĝ, ô) per DU and bin; it differs from the true response by the calibration error.
 _Avoid_: calibration (alone, ambiguous between the process and its result)
+
+**Apodization**:
+A window A(x) on the OPD samples of an IFG, A(0) = 1, applied in the spectrum fit; it widens the line shape of each bin and lowers its sidelobes.
+_Avoid_: windowing, smoothing (smoothing is the effect on the spectrum, not the operation)
 
 ### Sky
 

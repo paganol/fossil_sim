@@ -7,6 +7,7 @@ import pytest
 from fossil_sim.ifg import (
     differential_spectra,
     differential_spectrum,
+    differential_spectrum_solver,
     interferogram,
     opd_samples_m,
 )
@@ -373,3 +374,47 @@ def test_one_over_f_validated(config):
     values["ifg"].update(simulate=True)
     values["noise"].update(fknee_lf_mhz=50.0, fknee_hf_mhz=20.0)
     config_from_dict(values)
+
+
+def test_apodization_reaches_solvers_and_variance(config):
+    """ifg.apodization sets the fit of every DU and the propagated variance."""
+    cfg = replace(config, ifg=replace(config.ifg, simulate=True))
+    apodized = replace(cfg, ifg=replace(cfg.ifg, apodization="norton_beer_medium"))
+    freq_ghz = frequency_grid_ghz(cfg.instrument)
+    dus = detector_units(cfg.instrument)
+    solvers = ifg_solvers(apodized, freq_ghz, dus)
+    for du in dus:
+        expected = differential_spectrum_solver(
+            freq_ghz,
+            du,
+            opd_samples_m(cfg.ifg),
+            cfg.noise.modulation_efficiency,
+            freq_step_ghz=cfg.instrument.freq_step_ghz,
+            apodization="norton_beer_medium",
+        )
+        np.testing.assert_array_equal(solvers[du.name], expected)
+    plain = sky_estimate_noise_variance(cfg, freq_ghz, dus)
+    smoothed = sky_estimate_noise_variance(apodized, freq_ghz, dus)
+    # narrower noise per bin (bins correlated), about (0.66)² inside the bands
+    ratio = smoothed / plain
+    assert np.all(ratio < 1) and np.median(ratio) == pytest.approx(0.44, abs=0.05)
+
+
+def test_kaiser_beta_reaches_solvers(config):
+    cfg = replace(config, ifg=replace(config.ifg, simulate=True, apodization="kaiser"))
+    freq_ghz = frequency_grid_ghz(cfg.instrument)
+    du = detector_units(cfg.instrument)[0]
+    for beta in (3.0, 9.0):
+        solver = ifg_solvers(
+            replace(cfg, ifg=replace(cfg.ifg, kaiser_beta=beta)), freq_ghz, [du]
+        )[du.name]
+        expected = differential_spectrum_solver(
+            freq_ghz,
+            du,
+            opd_samples_m(cfg.ifg),
+            cfg.noise.modulation_efficiency,
+            freq_step_ghz=cfg.instrument.freq_step_ghz,
+            apodization="kaiser",
+            kaiser_beta=beta,
+        )
+        np.testing.assert_array_equal(solver, expected)
