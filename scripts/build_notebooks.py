@@ -208,6 +208,32 @@ axes[1].set(xscale="log", xlabel="ν [GHz]", ylabel="Var / white", title="Varian
 for ax in axes:
     ax.legend(fontsize=8)
 fig.tight_layout()"""),
+    md("""## Noise correlation between bins
+
+The fit can correlate the frequency bins:
+`sky_estimate_noise_covariance` gives the covariance per IFG of the sky
+estimate, whose diagonal is the variance map; a pixel seen $N$ times has
+$C/N$. Without apodization the bins are nearly independent; apodization
+correlates neighbouring bins (Norton–Beer medium: 0.57; Kaiser with a large
+β, more bins). 1/f noise adds at most a few percent between the lowest LF
+bins. LF and HF bins come from different DUs and are uncorrelated: the
+blocks break at the 200 GHz dichroic split (zoom on 105–300 GHz)."""),
+    code("""from fossil_sim.noise import sky_estimate_noise_covariance
+
+fig, axes = plt.subplots(1, 3, figsize=(13, 4))
+cases = (("none", 8.0), ("norton_beer_medium", 8.0), ("kaiser", 12.0))
+for ax, (apodization, beta) in zip(axes, cases):
+    cfg = replace(simulated, ifg=replace(simulated.ifg, apodization=apodization, kaiser_beta=beta))
+    covariance = sky_estimate_noise_covariance(cfg, freq_ghz, list(dus.values()))
+    sigma = np.sqrt(np.diag(covariance))
+    zoom = (freq_ghz >= 105) & (freq_ghz <= 300)  # around the 200 GHz dichroic split
+    half = config.instrument.freq_step_ghz / 2
+    extent = (freq_ghz[zoom][0] - half, freq_ghz[zoom][-1] + half) * 2
+    image = ax.imshow((covariance / np.outer(sigma, sigma))[np.ix_(zoom, zoom)], cmap="RdBu_r",
+                      vmin=-1, vmax=1, origin="lower", extent=extent)
+    title = f"kaiser, β = {beta:g}" if apodization == "kaiser" else apodization
+    ax.set(title=title, xlabel="ν [GHz]", ylabel="ν [GHz]")
+fig.colorbar(image, ax=axes, label="correlation", shrink=0.8)"""),
 ]
 
 spectral = [

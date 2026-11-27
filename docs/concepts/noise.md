@@ -49,10 +49,33 @@ The formula for $\delta S_\nu$ assumes orthogonal cosines. With
 through the actual least-squares solver $L$:
 $\operatorname{Var}(d_k) = \sigma_\mathrm{sample}^2 \sum_j L_{kj}^2$.
 This includes the fitted constant and the finite OPD sampling; near Nyquist
-the bin variances can differ substantially from the nominal formula. The fit
-can also correlate frequency bins; the variance maps store only the diagonal
-of that covariance. The spectral-domain noise model retains independent bins
-with the nominal variance.
+the bin variances can differ substantially from the nominal formula. The
+spectral-domain noise model retains independent bins with the nominal
+variance.
+
+## Covariance between bins
+
+The fit can correlate the frequency bins of a DU. For stationary sample
+noise of power spectrum $\sigma_\mathrm{sample}^2 S(f)$ the covariance of the
+fitted bins is
+
+$$
+C_{kl} = \sigma_\mathrm{sample}^2 \int S(f)\,\hat L_k(f)\,\hat L_l^*(f)\,df,
+$$
+
+with $\hat L_k$ the transform of the row $k$ of the solver
+({func}`fossil_sim.noise.fit_noise_covariance`): $\sigma_\mathrm{sample}^2 L L^T$
+for white noise. The sky estimate, the mean of the DUs covering each bin,
+has $C = \sum_\mathrm{DU} C_\mathrm{DU} / (n_k n_l)$, divided by
+$\hat g_k \hat g_l$ with a calibration gain
+({func}`fossil_sim.noise.sky_estimate_noise_covariance`); the variance maps
+are its diagonal. The DUs have independent noise, so LF and HF bins are
+uncorrelated. On the baseline the correlation of neighbouring bins is
+below 0.5 % without apodization, up to 2.4 % between the lowest LF bins with
+1/f noise of $f_\mathrm{knee}$ = 2 Hz, and 0.57 with Norton–Beer medium
+apodization. Every valid IFG has the same $C$, so a pixel seen $N_p$ times
+has $C/N_p$ ({doc}`mapmaking`). Correlations between IFGs are neglected
+(below 1 % with 1/f noise, see below).
 
 With the baseline (photon noise, M8 bands 30–200–2000 GHz, $m = 1/2$) the
 NEP is 1.2×10⁻¹⁶ (LF) and 1.9×10⁻¹⁶ W/√Hz (HF), and

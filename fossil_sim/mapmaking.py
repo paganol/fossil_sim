@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import h5py
 import healpy as hp
 import numpy as np
 from numba import njit
@@ -93,8 +94,11 @@ class SpectralMaps:
       diagnostic product (B10 and B01 have opposite sky sign).
 
     Sums are stored as (npix, n_freq) for contiguous accumulation.
-    ``noise_variance_per_ifg`` (per bin, MJy²/sr²), when given, yields the
-    white-noise variance maps of the sky, variance / hits.
+    ``noise_covariance_per_ifg`` (between bins, MJy²/sr², the same for every
+    science IFG; :func:`fossil_sim.noise.sky_estimate_noise_covariance`),
+    when given, yields the noise covariance of each pixel of the sky map,
+    covariance / hits, and the variance maps, its diagonal. A variance alone
+    (``noise_variance_per_ifg``) gives only the variance maps.
     """
 
     def __init__(
@@ -102,8 +106,12 @@ class SpectralMaps:
         nsides: tuple[int, ...],
         freq_ghz: np.ndarray,
         noise_variance_per_ifg: np.ndarray | None = None,
+        noise_covariance_per_ifg: np.ndarray | None = None,
     ) -> None:
         self.freq_ghz = np.asarray(freq_ghz)
+        self.noise_covariance_per_ifg = noise_covariance_per_ifg
+        if noise_variance_per_ifg is None and noise_covariance_per_ifg is not None:
+            noise_variance_per_ifg = np.diag(noise_covariance_per_ifg).copy()
         self.noise_variance_per_ifg = noise_variance_per_ifg
         n_freq = self.freq_ghz.size
         self.sky_sum = {n: np.zeros((hp.nside2npix(n), n_freq)) for n in nsides}
@@ -174,16 +182,55 @@ class SpectralMaps:
             maps = self.noise_variance_per_ifg[:, None] / counts[None, :]
         return np.where(np.isfinite(maps), maps, hp.UNSEEN)
 
+    def sky_covariance(self, nside: int, pixel: int) -> np.ndarray:
+        """Noise covariance between the bins of one pixel of the sky map, (MJy/sr)².
+
+        Covariance per IFG / hits, shape (n_freq, n_freq); NaN where the
+        pixel is not observed or a bin is outside every DU band.
+        """
+        if self.noise_covariance_per_ifg is None:
+            raise ValueError("no noise covariance: noise disabled")
+        hits = self.sky_count[nside][pixel]
+        if hits == 0:
+            return np.full_like(self.noise_covariance_per_ifg, np.nan)
+        return self.noise_covariance_per_ifg / hits
+
+    def sky_correlation(self) -> np.ndarray:
+        """Noise correlation between bins, (n_freq, n_freq): the same for every pixel."""
+        if self.noise_covariance_per_ifg is None:
+            raise ValueError("no noise covariance: noise disabled")
+        sigma = np.sqrt(np.diag(self.noise_covariance_per_ifg))
+        with np.errstate(invalid="ignore", divide="ignore"):
+            return self.noise_covariance_per_ifg / np.outer(sigma, sigma)
+
     def raw_maps(self, nside: int) -> np.ndarray:
         """Differential spectra, shape (2 outputs, 2 Modes, n_freq, npix), MJy/sr."""
         return self._average(self.raw_sum[nside], self.raw_count[nside])
 
     def save(self, output_dir: str | Path) -> list[Path]:
-        """Write the sky and diagnostic maps, one FITS file each per nside."""
+        """Write the sky and diagnostic maps, one FITS file each per nside.
+
+        With a noise covariance, also ``sky_noise_covariance.h5``: the
+        covariance per IFG (``covariance_per_ifg``, (MJy/sr)²), the bin
+        frequencies and the science hits of the sky map per nside
+        (``hits/nside_NNNN``); pixel p has covariance_per_ifg / hits[p].
+        """
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         freq_names = [f"{f:07.2f}GHz" for f in self.freq_ghz]
         paths = []
+        if self.noise_covariance_per_ifg is not None:
+            path = output_dir / "sky_noise_covariance.h5"
+            with h5py.File(path, "w") as f:
+                dataset = f.create_dataset(
+                    "covariance_per_ifg", data=self.noise_covariance_per_ifg
+                )
+                dataset.attrs["unit"] = "(MJy/sr)^2"
+                dataset.attrs["pixel_covariance"] = "covariance_per_ifg / hits[pixel]"
+                f.create_dataset("freq_ghz", data=self.freq_ghz)
+                for nside, counts in self.sky_count.items():
+                    f.create_dataset(f"hits/nside_{nside:04d}", data=counts)
+            paths.append(path)
         for nside in self.sky_sum:
             path = output_dir / f"sky_nside{nside:04d}.fits"
             hp.write_map(

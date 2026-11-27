@@ -348,3 +348,35 @@ def test_cached_modulation_matrix_gives_identical_ifgs(config, orbit, table):
             *args, modulation=model.modulation[du.name], **kwargs
         )
         assert np.array_equal(cached, du_interferograms(*args, **kwargs))
+
+
+def test_ifg_noise_maps_follow_the_pixel_covariance(config):
+    """Apodized fit and 1/f noise: the map residuals of each pixel, whitened
+    with its covariance between bins, are uncorrelated with unit variance."""
+    quiet = replace(
+        ifg_config(config, sky_variation=False, noise=True),
+        static_sky=replace(config.static_sky, models=()),
+        timeline=replace(config.timeline, scans_per_ring=4, recycling_scans=2),
+    )
+    quiet = replace(
+        quiet,
+        ifg=replace(quiet.ifg, apodization="norton_beer_medium"),
+        noise=replace(quiet.noise, fknee_lf_mhz=1000.0, fknee_hf_mhz=1000.0),
+    )
+    noisy = run_simulation(quiet, num_of_cycles=1).spectral_maps
+    clean = run_simulation(
+        replace(quiet, noise=replace(quiet.noise, enabled=False)), num_of_cycles=1
+    ).spectral_maps
+    seen = np.flatnonzero(clean.sky_count[64] > 0)
+    residual = noisy.sky_map(64)[:, seen] - clean.sky_map(64)[:, seen]
+    for du in detector_units(quiet.instrument)[:2]:  # LF and HF blocks
+        band = du.band_mask(noisy.freq_ghz)
+        factor = np.linalg.cholesky(noisy.noise_covariance_per_ifg[np.ix_(band, band)])
+        whitened = np.linalg.solve(factor, residual[band]) * np.sqrt(
+            noisy.sky_count[64][seen]
+        )
+        assert whitened.std() == pytest.approx(1.0, rel=0.03)
+        neighbours = np.mean(whitened[1:] * whitened[:-1])
+        assert abs(neighbours) < 0.03
+        # without the whitening the neighbouring bins are correlated
+        assert noisy.sky_correlation()[band][:, band].diagonal(1).mean() > 0.4

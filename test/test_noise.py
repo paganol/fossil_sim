@@ -16,10 +16,12 @@ from fossil_sim.noise import (
     SampleNoise,
     du_nep_w_sqrt_hz,
     du_noise_mjy_sr,
+    fit_noise_covariance,
     ifg_solvers,
     noise_sigma_mjy_sr,
     one_over_f_variance_factor,
     sample_noise_sigma,
+    sky_estimate_noise_covariance,
     sky_estimate_noise_variance,
 )
 from fossil_sim.simulation import run_simulation
@@ -418,3 +420,90 @@ def test_kaiser_beta_reaches_solvers(config):
             kaiser_beta=beta,
         )
         np.testing.assert_array_equal(solver, expected)
+
+
+@pytest.mark.parametrize(
+    "simulate, apodization, fknee_mhz",
+    [(False, "none", 0.0), (True, "none", 0.0), (True, "norton_beer_medium", 2000.0)],
+)
+def test_sky_covariance_diagonal_is_the_variance(
+    config, simulate, apodization, fknee_mhz
+):
+    cfg = replace(
+        config,
+        ifg=replace(config.ifg, simulate=simulate, apodization=apodization),
+        noise=replace(config.noise, fknee_lf_mhz=fknee_mhz, fknee_hf_mhz=fknee_mhz),
+    )
+    freq_ghz = frequency_grid_ghz(cfg.instrument)
+    dus = detector_units(cfg.instrument)
+    covariance = sky_estimate_noise_covariance(cfg, freq_ghz, dus)
+    np.testing.assert_allclose(covariance, covariance.T, rtol=1e-12)
+    np.testing.assert_allclose(
+        np.diag(covariance),
+        sky_estimate_noise_variance(cfg, freq_ghz, dus),
+        rtol=1e-12,
+    )
+    lf = dus[0].band_mask(freq_ghz)
+    # LF and HF bins come from different DUs: uncorrelated
+    assert np.all(covariance[np.ix_(lf, ~lf)] == 0)
+    if not simulate:
+        assert np.count_nonzero(covariance - np.diag(np.diag(covariance))) == 0
+
+
+def test_apodization_correlates_neighbouring_bins(config):
+    cfg = replace(config, ifg=replace(config.ifg, simulate=True))
+    freq_ghz = frequency_grid_ghz(cfg.instrument)
+    dus = detector_units(cfg.instrument)
+    k = int(np.flatnonzero(freq_ghz == 1005.0)[0])
+
+    def correlation(apodization):
+        apodized = replace(cfg, ifg=replace(cfg.ifg, apodization=apodization))
+        c = sky_estimate_noise_covariance(apodized, freq_ghz, dus)
+        return c[k, k + 1] / np.sqrt(c[k, k] * c[k + 1, k + 1])
+
+    assert abs(correlation("none")) < 0.01
+    assert correlation("norton_beer_medium") == pytest.approx(0.57, abs=0.02)
+
+
+def test_sky_covariance_is_divided_by_the_gains(config):
+    freq_ghz = frequency_grid_ghz(config.instrument)
+    dus = detector_units(config.instrument)
+    cfg = replace(config, ifg=replace(config.ifg, simulate=True))
+    gain = {
+        du.name: np.linspace(1.0, 2.0, int(du.band_mask(freq_ghz).sum())) for du in dus
+    }
+    plain = sky_estimate_noise_covariance(cfg, freq_ghz, dus)
+    calibrated = sky_estimate_noise_covariance(cfg, freq_ghz, dus, gain=gain)
+    band = dus[1].band_mask(freq_ghz)
+    g = gain[dus[1].name]
+    np.testing.assert_allclose(
+        calibrated[np.ix_(band, band)],
+        plain[np.ix_(band, band)] / np.outer(g, g),
+        rtol=1e-12,
+    )
+
+
+def test_fit_covariance_matches_monte_carlo(config):
+    """1/f sample noise through an apodized fit: the full covariance, not only
+    the diagonal."""
+    cfg = replace(
+        one_over_f_config(config, fknee_mhz=2000.0),
+        ifg=replace(config.ifg, simulate=True, apodization="norton_beer_medium"),
+    )
+    freq_ghz = frequency_grid_ghz(cfg.instrument)
+    lf = detector_units(cfg.instrument)[0]
+    solver = ifg_solvers(cfg, freq_ghz, [lf])[lf.name]
+    expected = fit_noise_covariance(cfg, lf, solver)
+    n_ifg = 40000
+    noise = SampleNoise(cfg, lf, 0, 0, np.zeros(n_ifg, dtype=bool))
+    spectra = np.concatenate(
+        [noise[i : i + 2000] @ solver.T for i in range(0, n_ifg, 2000)]
+    )
+    measured = np.cov(spectra, rowvar=False)
+    sigma = np.sqrt(np.diag(expected))
+    # correlations to 3 standard errors of a 40000-sample estimate
+    np.testing.assert_allclose(
+        measured / np.outer(sigma, sigma),
+        expected / np.outer(sigma, sigma),
+        atol=3 / np.sqrt(n_ifg) * 2,
+    )
