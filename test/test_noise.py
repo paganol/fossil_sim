@@ -507,3 +507,13 @@ def test_fit_covariance_matches_monte_carlo(config):
         expected / np.outer(sigma, sigma),
         atol=3 / np.sqrt(n_ifg) * 2,
     )
+
+
+def test_sample_noise_independent_of_nthreads(config):
+    cfg = replace(config, ifg=replace(config.ifg, simulate=True))
+    du = detector_units(cfg.instrument)[0]
+    recycling = np.zeros(1300, dtype=bool)
+    serial = SampleNoise(cfg, du, 0, 3, recycling)[100:1300]
+    threaded = replace(cfg, simulation=replace(cfg.simulation, nthreads=4))
+    parallel = SampleNoise(threaded, du, 0, 3, recycling)[100:1300]
+    np.testing.assert_array_equal(parallel, serial)

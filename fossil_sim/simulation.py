@@ -9,7 +9,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import h5py
+import numba
 import numpy as np
+from threadpoolctl import threadpool_limits
 
 from .config import MODES, Config
 from .ifg import (
@@ -330,7 +332,7 @@ class SignalModel:
         n_window = SKY_GRID_PER_IFG + 3
         if isinstance(circles, StaticCircles):
             window = self.static_window(table, circles)
-            static = window.transpose(1, 0, 2) @ circles.spectra.T
+            static = window @ circles.spectra.T
             return self.sky_mjy_sr(table, zodi, include_static=False)[:, None] + static
         if circles is None or not self.config.ifg.sky_variation:
             sky = self.sky_mjy_sr(table, zodi, circles=circles)
@@ -350,19 +352,17 @@ class SignalModel:
         return sky
 
     def static_window(self, table: np.ndarray, circles: StaticCircles) -> np.ndarray:
-        """Static-sky amplitudes on the window of each IFG, (n_window, n, K).
+        """Static-sky amplitudes on the window of each IFG, (n, n_window, K).
 
-        Window-major; the Doppler parts are scaled by β·n̂ at the IFG centre
+        The Doppler parts are scaled by β·n̂ at the IFG centre
         (orbital velocity for the barycentric part, solar + orbital for the
         cosmological one), as in :meth:`sky_windows`.
         """
         n_window = SKY_GRID_PER_IFG + 3
         index = (
-            table["ifg_in_scan"][None, :] * SKY_GRID_PER_IFG
-            - 1
-            + np.arange(n_window)[:, None]
+            table["ifg_in_scan"][:, None] * SKY_GRID_PER_IFG - 1 + np.arange(n_window)
         ) % circles.amplitudes.shape[1]
-        window = circles.amplitudes[table["ring_in_cycle"][None, :], index]
+        window = circles.amplitudes[table["ring_in_cycle"][:, None], index]
         if len(circles.sizes) == 3:
             direction = table["boresight"]
             orbital_km_s = self.orbit.position_velocity(table["time_mid_s"])[1]
@@ -371,7 +371,7 @@ class SignalModel:
                 (slice(k0, k0 + k1), orbital_km_s),
                 (slice(k0 + k1, None), self.solar_velocity_km_s + orbital_km_s),
             ):
-                window[..., part] *= doppler_factor(direction, velocity)[None, :, None]
+                window[..., part] *= doppler_factor(direction, velocity)[:, None, None]
         return window
 
     def noise_for_cycle(
@@ -668,7 +668,28 @@ def run_simulation(
         Pre-built Static sky; by default it is loaded from (or built into) the
         cache when ``config.static_sky.models`` is not empty. With MPI, rank 0
         builds it and the other ranks read the cache.
+
+    numba and BLAS (numpy matrix products) use ``config.simulation.nthreads``
+    threads during the run.
     """
+    nthreads = config.simulation.resolved_nthreads
+    # clamp only: numba's pool has as many threads as cores (fixed at import),
+    # set_num_threads raises above that
+    numba.set_num_threads(min(nthreads, numba.config.NUMBA_NUM_THREADS))
+    with threadpool_limits(limits=nthreads):
+        return _run_simulation(
+            config, num_of_cycles, comm, spectral, output_dir, static_sky
+        )
+
+
+def _run_simulation(
+    config: Config,
+    num_of_cycles: int | None = None,
+    comm=None,
+    spectral: bool = True,
+    output_dir: str | Path | None = None,
+    static_sky: StaticSky | None = None,
+) -> SimulationResult:
     if config.output.save_tod and (output_dir is None or not spectral):
         raise ValueError("save_tod needs spectral=True and an output_dir")
     if num_of_cycles is not None and not 1 <= num_of_cycles <= num_cycles(config):
@@ -796,9 +817,10 @@ def _load_static_sky(config: Config, comm) -> StaticSky:
         sky_frequency_grid_ghz(config),
         config.instrument.beam_fwhm_deg,
     )
+    nthreads = config.simulation.resolved_nthreads
     if comm is None:
-        return StaticSky(*args)
+        return StaticSky(*args, nthreads=nthreads)
     if comm.rank == 0:
-        StaticSky(*args)
+        StaticSky(*args, nthreads=nthreads)
     comm.Barrier()
-    return StaticSky(*args)
+    return StaticSky(*args, nthreads=nthreads)

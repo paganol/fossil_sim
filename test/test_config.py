@@ -54,7 +54,7 @@ def test_hash_is_stable_and_content_based():
         ("ifg", "max_opd_m", 0.005),
         ("noise", "modulation_efficiency", 1.5),
         ("ifg", "samples_per_ifg", 1),
-        ("static_sky", "nthreads", -1),
+        ("simulation", "nthreads", 0),
     ],
 )
 def test_invalid_values_are_rejected(section, key, value):
@@ -124,3 +124,20 @@ def test_ifg_apodization_is_validated():
         values["ifg"]["kaiser_beta"] = beta
         with pytest.raises(ValueError, match="kaiser_beta"):
             config_from_dict(values)
+
+
+def test_nthreads_defaults_to_omp_num_threads(monkeypatch):
+    config = config_from_dict(baseline_dict())
+    assert config.simulation.nthreads is None
+    monkeypatch.delenv("OMP_NUM_THREADS", raising=False)
+    assert config.simulation.resolved_nthreads == 1
+    monkeypatch.setenv("OMP_NUM_THREADS", "6")
+    assert config.simulation.resolved_nthreads == 6
+    monkeypatch.setenv("OMP_NUM_THREADS", "4,2")  # nested: first level
+    assert config.simulation.resolved_nthreads == 4
+    monkeypatch.setenv("OMP_NUM_THREADS", "zero")
+    with pytest.raises(ValueError, match="OMP_NUM_THREADS"):
+        _ = config.simulation.resolved_nthreads
+    values = baseline_dict()
+    values["simulation"]["nthreads"] = 3  # explicit value wins
+    assert config_from_dict(values).simulation.resolved_nthreads == 3

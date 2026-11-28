@@ -6,6 +6,9 @@ master_seed = 20260101                    # arbitrary
 mission_start = "2040-01-01T00:00:00"     # TBD — placeholder (TDB): start of science
                                           # operations at L2, not launch
 duration_days = 1278.375                  # 3.5 yr nominal mission, Step2
+# nthreads = 4                            # threads of ducc0, numba, BLAS, IFG white noise
+                                          # (performance only); omitted: OMP_NUM_THREADS, or 1
+                                          # when unset; several MPI ranks per node: cores / ranks
 
 [timeline]
 # The Cooler-cycle duration is derived:
@@ -110,8 +113,6 @@ doppler = true                            # first-order Doppler (ADR 0003): orbi
                                           # and extragalactic models; slope dI/dlnν from pysm3
 cache_dir = "cache/static_sky"            # relative to the working directory
 sampling = "alm"                          # "alm" (ducc0, exact) | "nearest" (pixel)
-nthreads = 0                              # synthesis threads, 0 = all cores (performance only;
-                                          # lower it when several MPI ranks share a node)
 rank_epsilon = 1e-9                       # sampling "alm": low-rank factorization in frequency,
                                           # every frequency map within rank_epsilon of its rms
                                           # (1e-9 = synthesis accuracy); 0 = off, one synthesis
@@ -126,7 +127,6 @@ model = "planck18"                        # Planck Collaboration 2018 (calibrate
                                           # prompt: prefer planck18 below ~1 THz
 extrapolate = true                        # needed outside 100–857 GHz (~20 % uncertainty above)
 gauss_quad_degree = 50                    # zodipy default (points per line of sight)
-nprocesses = 1                            # zodipy parallelism (performance only)
 
 [noise]
 # Photon noise of each DU from its optical loading (Coulon, Aghanim & Maffei 2026,

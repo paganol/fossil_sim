@@ -267,7 +267,7 @@ from fossil_sim.spectra import (
 )
 
 config = load_config(Path.cwd().parent / "configs" / "baseline.toml")
-config = replace(config, zodi=replace(config.zodi, nprocesses=4))
+config = replace(config, simulation=replace(config.simulation, nthreads=4))
 sky = config.sky"""),
     md("## Rest-frame spectra of the Isotropic backgrounds"),
     code("""freq_ghz = np.geomspace(30, 2000, 400)

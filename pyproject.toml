@@ -16,6 +16,7 @@ dependencies = [
     "matplotlib>=3.8",
     "pysm3>=3.4.6",
     "ducc0>=0.41.0",
+    "threadpoolctl>=3.1",  # BLAS threads = simulation.nthreads
     "zodipy>=1.1.5,<1.2",  # private API used in ZodiacalLight
 ]
 

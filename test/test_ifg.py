@@ -130,10 +130,10 @@ def test_interpolated_modulation_equals_the_direct_product(zeros):
     if zeros:  # rows starting or ending with an exact zero form their own groups
         weights[3, np.flatnonzero(weights[3])[0]] = 0.0
         weights[10, np.flatnonzero(weights[10])[-1]] = 0.0
-    difference = rng.standard_normal((grid + 3, n_ifg, n_freq))  # window-major
-    difference[:, ::3] = difference[:1, ::3]  # constant windows
+    difference = rng.standard_normal((n_ifg, grid + 3, n_freq))
+    difference[::3] = difference[::3, :1]  # constant windows
     modulation = rng.standard_normal((n_samples, n_freq))
-    direct = np.einsum("jw,wij->ij", weights, difference @ modulation.T)
+    direct = np.einsum("jw,iwk,jk->ij", weights, difference, modulation)
     detected = _interpolated_modulation(difference, modulation, weights)
     np.testing.assert_allclose(detected, direct, rtol=1e-12, atol=1e-12)
     # flags from the caller; a varying window flagged as varying is always exact
