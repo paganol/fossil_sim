@@ -3,6 +3,7 @@ import pytest
 
 from fossil_sim.ifg import (
     _interpolated_modulation,
+    apodization_line_shape,
     apodization_window,
     differential_spectrum,
     differential_spectrum_solver,
@@ -189,6 +190,27 @@ def test_apodized_fit_keeps_smooth_level_and_rejects_constant(config, name):
     assert np.abs(band[10:-10] / 5 - 1).max() < tolerance
     # ... while the line shape of the edge bins reaches beyond the fitted band
     assert band[-1] < 0.9 * 5
+
+
+@pytest.mark.parametrize("name", APODIZED)
+def test_apodized_fit_is_the_line_shape_of_the_input(config, name):
+    """The apodized spectrum is the input seen through the line shape ℓ at the
+    bin spacing, exactly. Applying A to the least-squares rows instead (the
+    sampled cosines are not exactly orthogonal: endpoints included,
+    c / (2 x_max) ≠ Δν) leaked the edge bin into every bin with sign (−1)^k,
+    a residual of ~2e-3 of a smooth spectrum."""
+    freq_ghz = frequency_grid_ghz(config.instrument)
+    opd_m = opd_samples_m(config.ifg)
+    du = detector_units(config.instrument)[1]
+    band = du.band_mask(freq_ghz)
+    dust = 1e-4 * blackbody_mjy_sr(freq_ghz, 18.0) * (freq_ghz / 353.0) ** 1.5
+    ifg = interferogram(freq_ghz, dust, np.zeros(freq_ghz.size), du, opd_m)
+    recovered = differential_spectrum(freq_ghz, ifg, du, opd_m, apodization=name)[band]
+    # exactly the input seen through the line shape ℓ at the bin spacing
+    ell = apodization_line_shape(name, recovered.size)
+    k = np.arange(recovered.size)
+    smoothed = ell[np.abs(np.subtract.outer(k, k))] @ dust[band]
+    np.testing.assert_allclose(recovered, smoothed, rtol=1e-9)
 
 
 def test_no_apodization_is_the_plain_least_squares(config):

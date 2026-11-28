@@ -446,6 +446,24 @@ def apodization_window(
     raise ValueError(f"unknown apodization {name!r}")
 
 
+def apodization_line_shape(
+    name: str, n_bins: int, kaiser_beta: float = DEFAULT_KAISER_BETA
+) -> np.ndarray:
+    """Line shape of apodization A at the bin spacing c / (2 x_max), ℓ(m), m = 0..n_bins−1.
+
+    ℓ(m) = ∫₀¹ A(u) cos(π m u) du: the fraction of the bin m bins away that
+    enters a bin, Σ_m ℓ(|m|) = A(0) = 1 over all m (a smooth spectrum keeps
+    its level away from the band edges); ℓ(0) = 1 and ℓ(m ≠ 0) = 0 without
+    apodization. Gauss–Legendre on [0, 1], exact for the windows of
+    :func:`apodization_window` (smooth on [0, 1]) at these m.
+    """
+    nodes, weights = np.polynomial.legendre.leggauss(max(256, 4 * n_bins))
+    u, w = (nodes + 1) / 2, weights / 2
+    window = apodization_window(name, u, kaiser_beta)
+    m = np.arange(n_bins)
+    return np.cos(np.pi * np.outer(m, u)) @ (w * window)
+
+
 def differential_spectrum_solver(
     freq_ghz: np.ndarray,
     du: DetectorUnit,
@@ -463,23 +481,27 @@ def differential_spectrum_solver(
     It depends only on the configuration: compute it once per DU and reuse it.
 
     Without apodization, the least squares on a constant plus the cosines of
-    the band bins, D⁺. With apodization A (:func:`apodization_window`), the
-    constant a₀ of that fit is removed first, then the apodized samples are
-    projected on the cosines: D⁺[1:] diag(A) (1 − 𝟙 D⁺[0]). Each bin is then
-    the spectrum seen through the line shape of A (wider, lower sidelobes)
-    and neighbouring bins are correlated; the rows still annihilate a
-    constant.
+    the band bins, D⁺. With apodization A (:func:`apodization_window`), that
+    fit is followed by the line shape of A at the bin spacing,
+    T D⁺[1:] with T[k, j] = ℓ(k − j) (:func:`apodization_line_shape`): the
+    spectrum seen through the line shape of A (wider, lower sidelobes, and
+    neighbouring bins correlated), the textbook FT of the apodized IFG for
+    bins on the c / (2 x_max) grid. The rows still annihilate a constant.
+    Applying A to the samples before the projection instead (D⁺[1:] diag(A),
+    constant removed) is not equivalent on the sampled grid, whose cosines
+    are not exactly orthogonal: it left a (−1)^k residual of ~1e-3 of a
+    smooth spectrum.
     """
     mask = du.band_mask(freq_ghz)
     freq_step_ghz = _frequency_step_ghz(freq_ghz, freq_step_ghz)
     design = np.column_stack(
         [np.ones_like(opd_m), modulation_matrix(freq_ghz[mask], opd_m)]
     )
-    pinv = np.linalg.pinv(design)
-    fit = pinv[1:]
+    fit = np.linalg.pinv(design)[1:]
     if apodization != "none":
-        window = apodization_window(apodization, opd_m, kaiser_beta)
-        fit = fit * window - np.outer(fit @ window, pinv[0])
+        ell = apodization_line_shape(apodization, fit.shape[0], kaiser_beta)
+        offsets = np.abs(np.subtract.outer(np.arange(ell.size), np.arange(ell.size)))
+        fit = ell[offsets] @ fit
     return fit / (freq_step_ghz * modulation_efficiency)
 
 

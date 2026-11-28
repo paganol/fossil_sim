@@ -8,6 +8,17 @@ tagged releases.
 
 Changes on `main` that are not in a release yet.
 
+- Apodization: the plain least-squares fit is now followed by the line shape
+  of the window at the bin spacing, ℓ(m) = ∫₀¹ A(u) cos(π m u) du (new
+  `fossil_sim.ifg.apodization_line_shape`), instead of weighting the samples
+  before the projection. On the sampled OPD grid the cosines are not exactly
+  orthogonal (both endpoints sampled, c / (2 x_max) = 14.99 GHz), and the old
+  solver leaked the first bin of each DU band into every bin with sign
+  (−1)^k: a smooth spectrum came back with an alternating residual of about
+  2 × 10⁻³ (10³–10⁴ Jy/sr on region-averaged step2 maps). Line shapes, noise
+  per bin and correlations are unchanged to 0.1 GHz / two digits; results
+  without apodization are unchanged.
+
 ## 0.1.10 (2026-11-28)
 
 - Faster IFG-domain simulation with the low-rank Static sky (about 2.7× on
