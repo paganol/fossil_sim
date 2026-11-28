@@ -8,6 +8,8 @@ tagged releases.
 
 Changes on `main` that are not in a release yet.
 
+## 0.1.10 (2026-11-28)
+
 - Faster IFG-domain simulation with the low-rank Static sky (about 2.7× on
   the IFG synthesis, 6.6 → 4.4 s per baseline cycle with 4 threads, same
   results to rounding): the window interpolation takes one matrix product per
@@ -16,6 +18,7 @@ Changes on `main` that are not in a release yet.
   (`simulation.nthreads`). The sky windows are IFG-major,
   (n_ifg, n_window, …), in `SignalModel.static_window`,
   `du_interferograms_low_rank` and `_interpolated_modulation`.
+  Reference PR: [#40](https://github.com/paganol/fossil_sim/pull/40).
 
 - One thread setting for the threaded libraries: `simulation.nthreads` sets the
   concurrent ducc0 syntheses of the Static sky, the numba and BLAS threads
@@ -28,6 +31,7 @@ Changes on `main` that are not in a release yet.
   **Config change:** `static_sky.nthreads` and `zodi.nprocesses` are removed
   (unknown keys now raise); the Static sky no longer uses all cores by
   default. `StaticSky` takes `nthreads`.
+  Reference PR: [#40](https://github.com/paganol/fossil_sim/pull/40).
 
 - Noise covariance between frequency bins of the sky map:
   `sky_estimate_noise_covariance` gives the covariance per IFG (diagonal in
@@ -37,6 +41,7 @@ Changes on `main` that are not in a release yet.
   `sky_correlation`, and `sky_noise_covariance.h5` among the outputs
   (covariance per IFG, frequencies, hits per nside). `SpectralMaps` takes
   `noise_covariance_per_ifg`; `noise_variance_per_ifg` still works alone.
+  Reference PR: [#39](https://github.com/paganol/fossil_sim/pull/39).
 
 - Optional apodization of the IFG samples before the spectrum fit
   (`ifg.simulate = true`): Norton–Beer weak, medium, strong, Hann,
@@ -51,6 +56,7 @@ Changes on `main` that are not in a release yet.
   **Config change:** new keys `ifg.apodization` (default `"none"`, results
   unchanged) and `ifg.kaiser_beta` (default 6, used only by `"kaiser"`);
   the configuration hash changes for every configuration.
+  Reference PR: [#35](https://github.com/paganol/fossil_sim/pull/35).
 
 - Gain drift in time, g → g (1 + γ(t)): one γ per IFG and DU, the same in
   every bin, drawn as in litebird_sim with `ducc0.misc.OofaNoise` at the IFG
@@ -63,6 +69,7 @@ Changes on `main` that are not in a release yet.
   drift), `response.gain_drift_fknee_mhz` (0), `response.gain_drift_alpha`
   (1), `response.gain_drift_fmin_hz` (1e-5); the configuration hash changes
   for every configuration.
+  Reference PR: [#34](https://github.com/paganol/fossil_sim/pull/34).
 
 - 1/f detector noise on the IFG samples (`ifg.simulate = true`), generated
   as in litebird_sim with `ducc0.misc.OofaNoise` on the white stream of each
@@ -75,6 +82,7 @@ Changes on `main` that are not in a release yet.
   (default 0, white noise), `noise.one_over_f_alpha` (1),
   `noise.one_over_f_fmin_hz` (1e-5); the configuration hash changes for
   every configuration, the noise realizations do not.
+  Reference PR: [#33](https://github.com/paganol/fossil_sim/pull/33).
 
 - Static sky sampled through a low-rank factorization in frequency of each
   alm cube (SVD, every frequency map kept within `static_sky.rank_epsilon`
@@ -88,14 +96,17 @@ Changes on `main` that are not in a release yet.
   **Config change:** new key `static_sky.rank_epsilon` (optional, default
   1e-9); the configuration hash changes for every configuration (the
   Static-sky cache key does not).
+  Reference PR: [#29](https://github.com/paganol/fossil_sim/pull/29).
 - IFG domain with sky variation: the Static sky enters the interferograms
   through the IFGs of its low-rank basis spectra, computed once per cycle and
   DU, instead of sky windows on the generation grid. Same outputs to
   10⁻¹⁰; the full-mission run on the 3 GHz generation grid (690 frequencies,
   cosine edges, 48 ranks on G100) goes from 32 to 10 min.
+  Reference PR: [#29](https://github.com/paganol/fossil_sim/pull/29).
 - IFG domain: the matrix cos(2πνx/c) on the band bins of each DU is built
   once by `SignalModel` instead of at every block (248 times per cycle).
   Identical outputs; a fine-grid cycle on one rank goes from 16.6 to 15.8 s.
+  Reference PR: [#30](https://github.com/paganol/fossil_sim/pull/30).
 - Photon noise from the optical loading: `noise.nep_model = "photon"`
   computes the NEP of each DU from the power it receives (Isotropic
   backgrounds, BBIR, grey-body optics `optics_emissivity` /
@@ -108,6 +119,7 @@ Changes on `main` that are not in a release yet.
   **Config change:** new optional `[noise]` keys `nep_model`,
   `optics_emissivity`, `optics_temperature_k`; the configuration hash
   changes for every configuration.
+  Reference PR: [#31](https://github.com/paganol/fossil_sim/pull/31).
 
 - The baseline uses the photon noise from the optical loading
   (`nep_model = "photon"`, Coulon et al. reference values: η = 0.5,
@@ -116,6 +128,7 @@ Changes on `main` that are not in a release yet.
   a photon NEP. Bands and mission are unchanged (30–200–2000 GHz, 3.5 yr).
   **Output change:** the baseline noise changes (per IFG and DU, LF 1.1e4 →
   7.6e3 Jy/sr, HF 3.0e5 → 1.2e4 Jy/sr).
+  Reference PR: [#32](https://github.com/paganol/fossil_sim/pull/32).
 
 ## 0.1.9 (2026-11-25)
 

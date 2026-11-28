@@ -322,7 +322,9 @@ def fit_noise_covariance(
         nc.one_over_f_alpha / 2
     )
     transform = np.fft.fft(solver, n=size, axis=1)
-    return sigma2 * ((transform * psd) @ transform.conj().T).real / size
+    covariance = ((transform * psd) @ transform.conj().T).real
+    # symmetric only to rounding as computed (complex BLAS product): exactly
+    return sigma2 * (covariance + covariance.T) / (2 * size)
 
 
 def one_over_f_variance_factor(
