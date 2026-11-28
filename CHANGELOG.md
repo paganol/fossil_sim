@@ -8,6 +8,8 @@ tagged releases.
 
 Changes on `main` that are not in a release yet.
 
+## 0.1.11 (2026-11-28)
+
 - Apodization: the plain least-squares fit is now followed by the line shape
   of the window at the bin spacing, ℓ(m) = ∫₀¹ A(u) cos(π m u) du (new
   `fossil_sim.ifg.apodization_line_shape`), instead of weighting the samples
@@ -18,6 +20,7 @@ Changes on `main` that are not in a release yet.
   2 × 10⁻³ (10³–10⁴ Jy/sr on region-averaged step2 maps). Line shapes, noise
   per bin and correlations are unchanged to 0.1 GHz / two digits; results
   without apodization are unchanged.
+  Reference PR: [#43](https://github.com/paganol/fossil_sim/pull/43).
 
 ## 0.1.10 (2026-11-28)
 
