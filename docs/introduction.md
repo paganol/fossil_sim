@@ -2,8 +2,9 @@
 
 ## The FOSSIL measurement
 
-FOSSIL observes the sky with an absolute FTS in the spirit of PIXIE
-{cite}`kogut2011`. The spectrometer has two inputs (Ports) and two outputs;
+FOSSIL ({cite}`aghanim2026`; mission website
+<https://fossil.ias.universite-paris-saclay.fr/>) observes the sky with an
+absolute FTS in the spirit of PIXIE {cite}`kogut2011`. The spectrometer has two inputs (Ports) and two outputs;
 at each output a dichroic splits the band at 200 GHz, giving four detector
 units (DUs). The modulated part of each output is proportional to the
 *difference* of the two input spectra, with opposite signs at the two outputs.
@@ -52,9 +53,22 @@ and the spectrum of each DU is recovered by least squares
 | 0.1.7 | IFG domain: interferograms, sample noise and least-squares spectra; faster spectral domain |
 | 0.1.8 | Configuration and numerical edge cases hardened, end-to-end IFG-domain tests |
 | 0.1.9 | DU response (gain, offset) and calibration solution; IFG generation on a finer, wider grid |
-| `main` (unreleased) | Photon noise from the optical loading (baseline), Static sky through a low-rank factorization, 1/f detector noise, gain drift, apodization of the IFG-domain spectrum fit |
+| 0.1.10 | Photon noise from the optical loading (baseline), Static sky through a low-rank factorization, 1/f detector noise, gain drift, apodization of the IFG-domain spectrum fit, noise covariance between bins, one thread setting |
+| 0.1.11 | Apodization applied as the line shape after the least-squares fit (no alternating residual) |
 
 The {doc}`changelog` lists every change.
 Several design ideas come from litebird_sim, which is used only as an optional
 validation oracle, and from bisou_sky for the sky model; fossil_sim depends on
 neither.
+
+## How to cite
+
+If you use fossil_sim in your work, please cite the FOSSIL mission paper
+{cite}`aghanim2026`:
+
+> N. Aghanim, B. Maffei, J. Aumont, et al., *FOSSIL: A future mission for CMB
+> spectral distortion measurements*, 2026,
+> [arXiv:2609.17618](https://arxiv.org/abs/2609.17618)
+
+The full BibTeX entry, with the complete author list, is in the
+[README](https://github.com/paganol/fossil_sim#how-to-cite).
