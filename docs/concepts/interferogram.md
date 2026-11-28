@@ -64,17 +64,25 @@ finite scan, a sinc of FWHM $1.21\,c/2x_\mathrm{max}$ (18 GHz at baseline)
 with a first sidelobe of −22 %. On the fit basis this is invisible (the
 recovery is exact), but structure off the basis rings over the whole band:
 a sharp band edge, an unresolved line, the sky changing during the IFG.
-`ifg.apodization` weights the samples by $A(x)$, $A(0) = 1$, before the fit
-({func}`fossil_sim.ifg.differential_spectrum_solver`): the constant $a_0$ of
-the plain fit is removed first, then the apodized samples are projected on
-the cosines,
+`ifg.apodization` applies a window $A(x)$, $A(0) = 1$, to the scan
+({func}`fossil_sim.ifg.differential_spectrum_solver`): the plain fit is
+followed by the line shape of $A$ at the bin spacing $c/(2x_\mathrm{max})$,
 
 $$
-R_A = D^+_{1:}\,\mathrm{diag}(A)\,\bigl(\mathbb 1 - \mathbf 1\,D^+_{0}\bigr),
+R_A = T_A\,D^+_{1:}, \qquad T_A[k, j] = \ell_A(k - j), \qquad
+\ell_A(m) = \int_0^1 A(u)\cos(\pi m u)\,\mathrm du
 $$
 
-with $D$ the design matrix of the plain fit. The rows still annihilate a
-constant, so the 1/f factor ({doc}`noise`) applies unchanged. The choices
+({func}`fossil_sim.ifg.apodization_line_shape`), with $D$ the design matrix
+of the plain fit: each bin is the spectrum seen through the line shape of
+$A$, the Fourier transform of the apodized IFG, and $\sum_m \ell_A(m) =
+A(0) = 1$. The rows still annihilate a constant, so the 1/f factor
+({doc}`noise`) applies unchanged. Weighting the samples by $A$ before the
+projection, $D^+_{1:}\,\mathrm{diag}(A)$ with the constant removed (the
+first implementation), is not the same on the sampled grid: its cosines are
+not exactly orthogonal (both endpoints sampled, $c/(2x_\mathrm{max})$ =
+14.99 GHz), and the first bin of each band leaked into every bin with sign
+$(-1)^k$, a residual of about $2\times10^{-3}$ of a smooth spectrum. The choices
 are the Norton–Beer weak, medium and strong functions {cite}`norton1976`,
 $A = \sum_i c_i (1 - u^2)^i$, Hann, $\cos^2(\pi u/2)$, triangular,
 $1 - u$, and Kaiser, $I_0\bigl(\beta\sqrt{1 - u^2}\bigr)/I_0(\beta)$ with
@@ -82,18 +90,18 @@ $\beta$ = `ifg.kaiser_beta` (default 6), with $u = |x|/x_\mathrm{max}$. On the b
 
 | `apodization` | FWHM | first sidelobe | σ per bin | ρ(k, k+1) | ρ(k, k+2) |
 |---|---|---|---|---|---|
-| `none` | 18.0 GHz | −22 % | 1 | 0.00 | 0.00 |
-| `norton_beer_weak` | 21.7 GHz | 5.9 % | 0.74 | 0.40 | 0.03 |
+| `none` | 18.1 GHz | −22 % | 1 | 0.00 | 0.00 |
+| `norton_beer_weak` | 21.7 GHz | 5.8 % | 0.74 | 0.40 | 0.03 |
 | `norton_beer_medium` | 25.3 GHz | 1.4 % | 0.66 | 0.57 | 0.08 |
-| `norton_beer_strong` | 28.9 GHz | 0.4 % | 0.61 | 0.67 | 0.18 |
-| `hann` | 29.9 GHz | 2.7 % | 0.61 | 0.67 | 0.17 |
-| `triangular` | 26.4 GHz | +4.7 % | 0.58 | 0.61 | 0.15 |
+| `norton_beer_strong` | 29.0 GHz | 0.4 % | 0.61 | 0.67 | 0.18 |
+| `hann` | 30.0 GHz | 2.7 % | 0.61 | 0.67 | 0.17 |
+| `triangular` | 26.6 GHz | +4.7 % | 0.58 | 0.61 | 0.15 |
 | `kaiser`, β = 4 | 24.9 GHz | 3.2 % | 0.68 | 0.54 | 0.06 |
-| `kaiser`, β = 6 | 29.2 GHz | 0.65 % | 0.61 | 0.67 | 0.18 |
-| `kaiser`, β = 8 | 33.2 GHz | 0.12 % | 0.56 | 0.74 | 0.29 |
+| `kaiser`, β = 6 | 29.3 GHz | 0.65 % | 0.61 | 0.67 | 0.18 |
+| `kaiser`, β = 8 | 33.3 GHz | 0.12 % | 0.56 | 0.74 | 0.29 |
 
 The triangular line shape is $\mathrm{sinc}^2$, the classical FWHM of
-$1.772\,c/(2x_\mathrm{max})$ (26.6 GHz; 26.4 GHz on the 512 samples): its
+$1.772\,c/(2x_\mathrm{max})$ (26.6 GHz): its
 sidelobes are never negative, but the first is higher than with Norton–Beer
 medium at a similar width, and they decay only as $1/\nu^2$. Their area
 beyond the edges of the fitted band is missing, so a flat spectrum comes out
@@ -117,7 +125,8 @@ not correct it.
 
 Effect on the systematics of the generation grid (3 GHz grid, 600 science
 IFGs at $|b| < 2°$ in the first Cooler cycle, no noise; sky estimate, the
-mean of L and R):
+mean of L and R; obtained with the first implementation, samples weighted
+before the projection, to be recomputed):
 
 - **Sky change during the IFG, top-hat bands.** The modulated part falls
   10–40 times inside the HF band with Norton–Beer medium or Hann (Hann:
@@ -446,13 +455,12 @@ equal to the instrument grid the input lies on the fit basis and, noise
 aside, $d = g\,[s(I_1 - I_2) + o]$ exactly; on a finer grid $d$ is a weighted
 bin average, with leakage and out-of-band signal (above).
 
-With `ifg.apodization` set (above), the constant of the plain fit is removed
-first, then the samples are weighted by the window $A(x_j)$ and projected on
-the cosines:
+With `ifg.apodization` set (above), the plain fit is followed by the line
+shape of the window $A$ at the bin spacing:
 
 $$
-R = \frac{D^+_{1:}\,\mathrm{diag}\big(A(x_j)\big)\,
-\big(\mathbb 1_N - \mathbf 1\,D^+_0\big)}{m\,\Delta\nu_\mathrm{inst}}.
+R = \frac{T_A\,D^+_{1:}}{m\,\Delta\nu_\mathrm{inst}}, \qquad
+T_A[k, j] = \int_0^1 A(u)\cos\bigl(\pi (k - j) u\bigr)\,\mathrm du.
 $$
 
 The rows of $R$ still annihilate a constant, but each bin is now the spectrum

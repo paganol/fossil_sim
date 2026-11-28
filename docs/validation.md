@@ -68,7 +68,9 @@ physics and the mission design.
   successive IFGs uncorrelated to 4 %; white realization unchanged with
   f_knee = 0.
 - Apodization (IFG domain): every window has A(0) = 1, its solver rows
-  annihilate a constant and a flat spectrum keeps its level away from the
+  annihilate a constant, the apodized spectrum of a smooth input is exactly
+  that input through the line shape ℓ at the bin spacing (to 10⁻⁹, no
+  (−1)^k residual), and a flat spectrum keeps its level away from the
   band edges (to 10⁻³; triangular: 1.2 %, its 1/ν² sidelobes reaching
   past the band), while the edge bins come out low; without apodization the
   solver is the plain least squares. Norton–Beer medium: sidelobe −22 % →
