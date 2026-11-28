@@ -8,7 +8,7 @@ identify a run ({meth}`fossil_sim.config.Config.provenance`).
 
 | Section | Content |
 |---|---|
-| `[simulation]` | master seed, start of science operations, mission duration |
+| `[simulation]` | master seed, start of science operations, mission duration, threads of ducc0, numba and BLAS (default `OMP_NUM_THREADS`, or 1) |
 | `[timeline]` | IFG duration, IFGs per Scan, Scans per Ring, Rings per cycle, Recycling Scans |
 | `[scanning]` | spin–boresight angle, Ring-stepping rule, Precession, maximum SAA |
 | `[orbit]` | L2 distance and Lissajous parameters |
@@ -17,8 +17,8 @@ identify a run ({meth}`fossil_sim.config.Config.provenance`).
 | `[maps]` | HEALPix resolutions |
 | `[instrument]` | frequency grid, band, dichroic split, band edges (IFG domain), beam |
 | `[sky]` | Isotropic backgrounds, solar velocity, beam on the dipole |
-| `[static_sky]` | pysm3 models, resolution, cache, sampling, Doppler, synthesis threads, low-rank threshold |
-| `[zodi]` | zodipy model, extrapolation, quadrature, parallelism |
+| `[static_sky]` | pysm3 models, resolution, cache, sampling, Doppler, low-rank threshold |
+| `[zodi]` | zodipy model, extrapolation, quadrature |
 | `[noise]` | NEPs, étendue, efficiencies, Recycling noise factor, 1/f noise (IFG domain) |
 | `[response]` | true DU gain (per DU, per-bin fluctuation, drift in time) and offset (emissivity, instrument temperature) |
 | `[calibration]` | calibration solution used for the sky estimate |

@@ -8,6 +8,27 @@ tagged releases.
 
 Changes on `main` that are not in a release yet.
 
+- Faster IFG-domain simulation with the low-rank Static sky (about 2.7× on
+  the IFG synthesis, 6.6 → 4.4 s per baseline cycle with 4 threads, same
+  results to rounding): the window interpolation takes one matrix product per
+  group of samples, with the weights folded into the modulation, and the
+  terms of each IFG are combined in a numba kernel parallel over the IFGs
+  (`simulation.nthreads`). The sky windows are IFG-major,
+  (n_ifg, n_window, …), in `SignalModel.static_window`,
+  `du_interferograms_low_rank` and `_interpolated_modulation`.
+
+- One thread setting for the threaded libraries: `simulation.nthreads` sets the
+  concurrent ducc0 syntheses of the Static sky, the numba and BLAS threads
+  (numpy matrix products, through the new dependency `threadpoolctl`; not
+  Accelerate on macOS) and the chunks of IFG white noise, drawn concurrently
+  with the same realization for any number of threads. Omitted (default), it
+  is `OMP_NUM_THREADS`, or 1 when unset. zodipy always runs serially
+  (`nprocesses = 1`): its process pool, rebuilt at every call, costs more than
+  it saves, and the default single-pass `planck18` evaluation does not use it.
+  **Config change:** `static_sky.nthreads` and `zodi.nprocesses` are removed
+  (unknown keys now raise); the Static sky no longer uses all cores by
+  default. `StaticSky` takes `nthreads`.
+
 - Noise covariance between frequency bins of the sky map:
   `sky_estimate_noise_covariance` gives the covariance per IFG (diagonal in
   the spectral domain; in the IFG domain propagated through the fit, with

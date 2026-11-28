@@ -7,6 +7,7 @@ suffixes in the key names follow the litebird_sim convention.
 
 import hashlib
 import json
+import os
 import subprocess
 import tomllib
 import warnings
@@ -42,6 +43,14 @@ class SimulationConfig:
     master_seed: int
     mission_start: str
     duration_days: float
+    # threads of the threaded libraries (ducc0, numba, BLAS), performance
+    # only; None (key omitted): OMP_NUM_THREADS if set, else 1
+    nthreads: int | None = None
+
+    @property
+    def resolved_nthreads(self) -> int:
+        """Number of threads to use, see :func:`resolve_nthreads`."""
+        return resolve_nthreads(self.nthreads)
 
     @property
     def mission_start_time(self) -> Time:
@@ -161,7 +170,6 @@ class StaticSkyConfig:
     doppler: bool
     cache_dir: str
     sampling: str
-    nthreads: int = 0  # synthesis threads, 0 = all cores (performance only)
     # relative accuracy of the low-rank factorization in frequency (sampling
     # "alm"); 0 = no factorization, one synthesis per frequency
     rank_epsilon: float = 1e-9
@@ -180,7 +188,21 @@ class ZodiConfig:
     model: str
     extrapolate: bool
     gauss_quad_degree: int
-    nprocesses: int
+
+
+def resolve_nthreads(nthreads: int | None = None) -> int:
+    """``nthreads``, or ``OMP_NUM_THREADS`` when ``None`` (1 when unset).
+
+    Of a nested ``OMP_NUM_THREADS`` list (e.g. ``"4,2"``) the first level is used.
+    """
+    if nthreads is not None:
+        return nthreads
+    env = os.environ.get("OMP_NUM_THREADS", "").split(",")[0].strip()
+    if not env:
+        return 1
+    if not env.isdigit() or int(env) < 1:
+        raise ValueError(f"OMP_NUM_THREADS must be a positive integer, got {env!r}")
+    return int(env)
 
 
 @dataclass(frozen=True)
@@ -420,12 +442,14 @@ def validate(config: Config) -> None:
         raise ValueError("static_sky.sampling must be 'alm' or 'nearest'")
     if st.lmax < 1 or st.nside < 1:
         raise ValueError("static_sky: nside and lmax must be >= 1")
-    if st.nthreads < 0:
-        raise ValueError("static_sky.nthreads must be >= 0 (0 = all cores)")
     if not 0 <= st.rank_epsilon < 1:  # also NaN
         raise ValueError("static_sky.rank_epsilon must be in [0, 1) (0 = off)")
-    if config.zodi.gauss_quad_degree < 1 or config.zodi.nprocesses < 1:
-        raise ValueError("zodi: gauss_quad_degree and nprocesses must be >= 1")
+    if config.zodi.gauss_quad_degree < 1:
+        raise ValueError("zodi.gauss_quad_degree must be >= 1")
+    if config.simulation.nthreads is not None and config.simulation.nthreads < 1:
+        raise ValueError(
+            "simulation.nthreads must be >= 1 (omit it: OMP_NUM_THREADS or 1)"
+        )
     if not bbir.setpoints_k or len(bbir.port_offsets_k) != 2:
         raise ValueError("bbir: setpoints_k non-empty, port_offsets_k of length 2")
     if config.timeline.recycling_scans == 0 and len(set(bbir.setpoints_k)) > 1:

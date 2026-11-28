@@ -20,7 +20,6 @@ receive the solar + orbital one (ADR 0003).
 
 import hashlib
 import json
-import os
 import uuid
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -35,7 +34,13 @@ from astropy import units as u
 from astropy.coordinates import BarycentricMeanEcliptic, SkyCoord
 from numpy.polynomial.chebyshev import chebvander
 
-from .config import EXTRAGALACTIC_STATIC_MODELS, Config, SkyConfig, StaticSkyConfig
+from .config import (
+    EXTRAGALACTIC_STATIC_MODELS,
+    Config,
+    SkyConfig,
+    StaticSkyConfig,
+    resolve_nthreads,
+)
 from .constants import C_LIGHT_M_S
 from .spectra import (
     blackbody_mjy_sr,
@@ -351,6 +356,8 @@ class StaticSky:
     emission : callable, optional
         Map generator, (barycentric, cosmological) per frequency (default:
         pysm3 with ``config.models``).
+    nthreads : int, optional
+        Concurrent syntheses (default: ``OMP_NUM_THREADS``, or 1 when unset).
     """
 
     def __init__(
@@ -359,11 +366,13 @@ class StaticSky:
         freq_ghz: np.ndarray,
         fwhm_deg: float,
         emission: EmissionFunction | None = None,
+        nthreads: int | None = None,
     ) -> None:
         self.config = config
         self.freq_ghz = np.asarray(freq_ghz)
-        # one synthesis per thread: faster than ducc0's threads on short calls
-        self._pool = ThreadPoolExecutor(config.nthreads or os.cpu_count())
+        # one synthesis per thread: faster than ducc0's threads on short calls;
+        # nthreads None: OMP_NUM_THREADS or 1 (fossil_sim.config.resolve_nthreads)
+        self._pool = ThreadPoolExecutor(resolve_nthreads(nthreads))
         key = static_sky_cache_key(config, self.freq_ghz, fwhm_deg)
         self.path = Path(config.cache_dir) / f"static_sky_{key[:16]}.h5"
         self.low_rank_path = self.path.with_name(
@@ -672,9 +681,9 @@ class ZodiacalLight:
             )
         result = np.empty((direction.shape[0], self.freq_ghz.size))
         for i, model in enumerate(self.models):
-            emission = model.evaluate(
-                coords, obspos=obspos, nprocesses=self.config.zodi.nprocesses
-            )
+            # serial: zodipy's process pool is rebuilt at every call (one per
+            # frequency and Ring, on few directions), its overhead dominates
+            emission = model.evaluate(coords, obspos=obspos, nprocesses=1)
             result[:, i] = emission.to_value(u.MJy / u.sr)
         return result
 

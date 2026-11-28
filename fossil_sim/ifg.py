@@ -21,7 +21,7 @@ of the IFG (TBD — placeholder mirror trajectory).
 """
 
 import numpy as np
-from numba import njit
+from numba import njit, prange
 
 from .config import IFGConfig
 from .constants import C_LIGHT_M_S
@@ -155,10 +155,7 @@ def du_interferograms(
     band = _band_index(mask)
     port1, port2 = port1_mjy_sr[..., band], port2_mjy_sr[..., band]
     total = port1 @ factor + port2 @ factor
-    # window-major layout: the window points of a group of samples are contiguous
-    n_ifg, n_window, _ = port1.shape
-    difference = np.empty((n_window, n_ifg, factor.size))
-    np.subtract(port1.transpose(1, 0, 2), port2.transpose(1, 0, 2), out=difference)
+    difference = port1 - port2  # (n_ifg, n_window, n_band)
     if offset_mjy_sr is not None:
         difference += du.output_sign * offset_mjy_sr
     difference *= factor
@@ -220,8 +217,8 @@ def du_interferograms_low_rank(
     The Port spectra are ``port1_mjy_sr`` and ``port2_mjy_sr`` (n_ifg,
     n_freq), constant over the IFG (sky without the Static sky, or BBIR),
     plus on each Port that sees the sky the Static sky Σ_k a_k U_k(ν), with
-    the amplitudes a_k on the window of each IFG, ``static_window`` (n_window,
-    n_ifg, K), window-major. ``sky_sign`` is (Port 1 on sky) − (Port 2 on
+    the amplitudes a_k on the window of each IFG, ``static_window`` (n_ifg,
+    n_window, K). ``sky_sign`` is (Port 1 on sky) − (Port 2 on
     sky) and ``sky_ports`` their sum; ``basis`` comes from
     :func:`static_basis_interferograms` with the same gain and transmission.
     Equal to :func:`du_interferograms` on the full Port spectra, at a cost per
@@ -237,23 +234,77 @@ def du_interferograms_low_rank(
     if offset_mjy_sr is not None:
         difference += du.output_sign * offset_mjy_sr
     difference *= factor
-    window_sum = weights.sum(axis=1)
     modulation = _band_modulation(modulation, freq_ghz, mask, opd_m)
-    modulated = (difference @ modulation.T) * window_sum
-    ifgs = total[:, None] * window_sum + du.output_sign * modulated
+    modulated = difference @ modulation.T
     # Static sky, only on the IFGs with a Port on the sky
     rows = np.flatnonzero(sky_ports)
-    if rows.size:
-        window = static_window if rows.size == len(total) else static_window[:, rows]
-        basis_modulated, basis_unmodulated = basis
-        varying = _interpolated_modulation(
-            window, basis_modulated, weights, np.zeros(rows.size, dtype=bool)
-        )
-        unmodulated = (window @ basis_unmodulated).T @ weights.T
-        ifgs[rows] += sky_ports[rows, None] * unmodulated + (
-            du.output_sign * sky_sign[rows, None] * varying
-        )
-    return modulation_efficiency * freq_step_ghz * ifgs
+    sky_row = np.full(len(total), -1)
+    sky_row[rows] = np.arange(rows.size)
+    window = static_window if rows.size == len(total) else static_window[rows]
+    basis_modulated, basis_unmodulated = basis
+    varying = _interpolated_modulation(
+        window, basis_modulated, weights, np.zeros(rows.size, dtype=bool)
+    )
+    unmodulated = window @ basis_unmodulated  # (n_rows, n_window)
+    ifgs = np.empty((len(total), weights.shape[0]))
+    _low_rank_kernel(
+        total,
+        modulated,
+        weights,
+        sky_row,
+        sky_ports,
+        sky_sign,
+        unmodulated,
+        varying,
+        float(du.output_sign),
+        modulation_efficiency * freq_step_ghz,
+        ifgs,
+    )
+    return ifgs
+
+
+@njit(parallel=True, cache=True)
+def _low_rank_kernel(
+    total,
+    modulated,
+    weights,
+    sky_row,
+    sky_ports,
+    sky_sign,
+    unmodulated,
+    varying,
+    sign,
+    scale,
+    out,
+):
+    """Interferograms of :func:`du_interferograms_low_rank`, one IFG per thread.
+
+    out[i, j] = scale (W_j (total_i + s M_ij) + p_i Σ_w W_jw u_wr + s σ_i V_rj),
+    with W_j the window sum, r = sky_row[i] (−1: no Port on the sky) and u,
+    V the unmodulated and modulated Static sky of row r.
+    """
+    n_ifg, n_samples = out.shape
+    n_window = weights.shape[1]
+    window_sum = np.zeros(n_samples)
+    first = np.zeros(n_samples, dtype=np.int64)  # non-zero weights: first:stop
+    stop = np.zeros(n_samples, dtype=np.int64)
+    for j in range(n_samples):
+        first[j] = n_window
+        for w in range(n_window):
+            window_sum[j] += weights[j, w]
+            if weights[j, w] != 0.0:
+                first[j] = min(first[j], w)
+                stop[j] = w + 1
+    for i in prange(n_ifg):
+        r = sky_row[i]
+        for j in range(n_samples):
+            value = window_sum[j] * (total[i] + sign * modulated[i, j])
+            if r >= 0:
+                static = 0.0
+                for w in range(first[j], stop[j]):
+                    static += weights[j, w] * unmodulated[r, w]
+                value += sky_ports[i] * static + sign * sky_sign[i] * varying[r, j]
+            out[i, j] = scale * value
 
 
 def _band_modulation(
@@ -319,36 +370,37 @@ def _interpolated_modulation(
     weights: np.ndarray,
     constant_window: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Σ_w weights[j, w] Σ_k difference[w, i, k] modulation[j, k], (n_ifg, n_samples).
+    """Σ_w weights[j, w] Σ_k difference[i, w, k] modulation[j, k], (n_ifg, n_samples).
 
-    ``difference`` is window-major, (n_window, n_ifg, n_freq). Equal, to
-    rounding, to ``einsum("jw,wij->ij", weights, difference @ modulation.T)``,
-    without the products on window points a sample does not use: IFGs whose
-    window is constant (``constant_window``, detected when not given) take
-    one product, the others one per group of samples (:func:`_window_groups`)
-    on its few window points.
+    ``difference`` is (n_ifg, n_window, n_freq). Equal, to rounding, to
+    ``einsum("jw,iwk,jk->ij", weights, difference, modulation)``, without the
+    products on window points a sample does not use: IFGs whose window is
+    constant (``constant_window``, detected when not given) take one product,
+    the others one per group of samples (:func:`_window_groups`), on its few
+    window points with the weights folded into the modulation.
     """
-    _, n_ifg, n_freq = difference.shape
+    n_ifg = difference.shape[0]
     n_samples = modulation.shape[0]
     if constant_window is None:
-        constant_window = np.all(difference == difference[:1], axis=(0, 2))
+        constant_window = np.all(difference == difference[:, :1], axis=(1, 2))
     out = np.empty((n_ifg, n_samples))
     if constant_window.any():
         out[constant_window] = (
-            difference[0, constant_window] @ modulation.T
+            difference[constant_window, 0] @ modulation.T
         ) * weights.sum(axis=1)
     varying = np.flatnonzero(~constant_window)
     if not varying.size:
         return out
-    part = difference if varying.size == n_ifg else difference[:, varying]
+    rows = difference if varying.size == n_ifg else difference[varying]
+    # one product per group, (IFGs, window points × frequencies) @ B with
+    # the weights folded into the modulation, B[(w, k), j] = W_jw C_jk
     result = np.empty((varying.size, n_samples))
     for samples, columns in _window_groups(weights):
-        window = part[columns]  # contiguous (window points, IFGs, frequencies)
-        products = (window.reshape(-1, n_freq) @ modulation[samples].T).reshape(
-            window.shape[0], varying.size, -1
-        )
-        result[:, samples] = np.einsum(
-            "jw,wij->ij", weights[samples, columns], products
+        folded = (
+            weights[samples, columns].T[:, :, None] * modulation[samples][None]
+        ).transpose(0, 2, 1)  # (window points, frequencies, samples)
+        result[:, samples] = rows[:, columns].reshape(varying.size, -1) @ (
+            folded.reshape(-1, folded.shape[2])
         )
     out[varying] = result
     return out

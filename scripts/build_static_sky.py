@@ -26,5 +26,6 @@ sky = StaticSky(
     config.static_sky,
     sky_frequency_grid_ghz(config),
     config.instrument.beam_fwhm_deg,
+    nthreads=config.simulation.resolved_nthreads,
 )
 print(f"{sky.path}: ranks {sky.ranks}, {time.perf_counter() - start:.0f} s")

@@ -34,6 +34,9 @@ cycle, DU, chunk of IFGs). There it can have a 1/f component
 (``fknee_lf/hf_mhz``, generated with ``ducc0.misc.OofaNoise``).
 """
 
+from concurrent.futures import ThreadPoolExecutor
+from functools import cache
+
 import ducc0
 import numpy as np
 
@@ -194,6 +197,7 @@ class SampleNoise:
             du_index,
         ]
         self.samples_per_ifg = config.ifg.samples_per_ifg
+        self.nthreads = config.simulation.resolved_nthreads
         self.sigma = sample_noise_sigma(config, du) * np.where(
             in_recycling, config.noise.recycling_noise_factor, 1.0
         )
@@ -220,17 +224,27 @@ class SampleNoise:
         return noise * self.sigma[start:stop, None]
 
     def _white(self, start: int, stop: int) -> np.ndarray:
-        """Unit white noise of rows start:stop, from their chunk seeds."""
+        """Unit white noise of rows start:stop, from their chunk seeds.
+
+        Chunks are independent streams, drawn concurrently on ``nthreads``
+        threads (numpy releases the GIL): the same values for any number.
+        """
         size = SAMPLE_NOISE_CHUNK_IFGS
         first, last = start // size, (stop - 1) // size + 1
-        return np.concatenate(
-            [
-                np.random.default_rng(
-                    np.random.SeedSequence(self.key + [chunk])
-                ).standard_normal((size, self.samples_per_ifg))
-                for chunk in range(first, last)
-            ]
-        )[start - first * size : stop - first * size]
+        out = np.empty(((last - first) * size, self.samples_per_ifg))
+
+        def draw(chunk: int) -> None:
+            rows = out[(chunk - first) * size : (chunk - first + 1) * size]
+            rng = np.random.default_rng(np.random.SeedSequence(self.key + [chunk]))
+            rng.standard_normal(out=rows)
+
+        chunks = range(first, last)
+        if self.nthreads > 1 and len(chunks) > 1:
+            list(_thread_pool(self.nthreads).map(draw, chunks))
+        else:
+            for chunk in chunks:
+                draw(chunk)
+        return out[start - first * size : stop - first * size]
 
     def _one_over_f(self, start: int, stop: int) -> np.ndarray:
         """Unit-white-level 1/f noise of rows start:stop, continuing the stream."""
@@ -250,6 +264,12 @@ class SampleNoise:
         noise = self._filter.filterGaussian(self._white(start, stop).ravel())
         self._next_row = stop
         return noise.reshape(stop - start, self.samples_per_ifg)
+
+
+@cache
+def _thread_pool(nthreads: int) -> ThreadPoolExecutor:
+    """Thread pool shared by the calls with the same ``nthreads``."""
+    return ThreadPoolExecutor(nthreads)
 
 
 def du_noise_mjy_sr(
